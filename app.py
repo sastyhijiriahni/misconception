@@ -1,6 +1,381 @@
+import streamlit as st
+import sqlite3
+import hashlib
+import secrets
+import json
+import io
+import math
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from datetime import datetime
+
 # =========================================================
-# 7. BANK SOAL FOUR-TIER (LANJUTAN)
+# 1. KONFIGURASI
 # =========================================================
+
+st.set_page_config(
+    page_title="MISCONCEPTION",
+    page_icon="🧠",
+    layout="wide"
+)
+
+DATABASE = "Misconception"
+
+C = 299792458          # Kecepatan cahaya (m/s)
+H = 6.62607015e-34    # Konstanta Planck (J.s)
+
+
+# =========================================================
+# 2. DATABASE
+# =========================================================
+
+def koneksi_database():
+    conn = sqlite3.connect(DATABASE)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def inisialisasi_database():
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nama TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            jenis_tes TEXT NOT NULL,
+            nilai REAL NOT NULL,
+            hasil_json TEXT NOT NULL,
+            tanggal TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# 3. PASSWORD
+# =========================================================
+
+def buat_hash_password(password, salt=None):
+
+    if salt is None:
+        salt = secrets.token_hex(16)
+
+    hasil = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        100000
+    ).hex()
+
+    return salt, hasil
+
+
+def verifikasi_password(password, salt, hash_asli):
+
+    _, hash_baru = buat_hash_password(password, salt)
+
+    return secrets.compare_digest(
+        hash_baru,
+        hash_asli
+    )
+
+
+# =========================================================
+# 4. REGISTRASI
+# =========================================================
+
+def daftar_siswa(nama, username, password):
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    salt, password_hash = buat_hash_password(password)
+
+    try:
+
+        cursor.execute("""
+            INSERT INTO users
+            (nama, username, salt, password_hash, role)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            nama,
+            username,
+            salt,
+            password_hash,
+            "Siswa"
+        ))
+
+        conn.commit()
+
+        berhasil = True
+        pesan = "Pendaftaran berhasil."
+
+    except sqlite3.IntegrityError:
+
+        berhasil = False
+        pesan = "Username telah digunakan."
+
+    conn.close()
+
+    return berhasil, pesan
+
+
+# =========================================================
+# 5. LOGIN
+# =========================================================
+
+def login_pengguna(username, password):
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, nama, username, salt, password_hash, role
+        FROM users
+        WHERE username = ?
+    """, (username,))
+
+    data = cursor.fetchone()
+    conn.close()
+
+    if data is None:
+        return None
+
+    if verifikasi_password(
+        password,
+        data[3],
+        data[4]
+    ):
+
+        return {
+            "id": data[0],
+            "nama": data[1],
+            "username": data[2],
+            "role": data[5]
+        }
+
+    return None
+
+
+# =========================================================
+# 6. MENYIMPAN HASIL
+# =========================================================
+
+def simpan_hasil(user_id, jenis_tes, nilai, hasil):
+
+    conn = koneksi_database()
+
+    conn.execute("""
+        INSERT INTO results
+        (user_id, jenis_tes, nilai, hasil_json, tanggal)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        jenis_tes,
+        nilai,
+        json.dumps(hasil, ensure_ascii=False),
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def ambil_riwayat_siswa(user_id):
+
+    conn = koneksi_database()
+
+    df = pd.read_sql_query("""
+        SELECT id, jenis_tes, nilai, tanggal, hasil_json
+        FROM results
+        WHERE user_id = ?
+        ORDER BY id DESC
+    """, conn, params=(user_id,))
+
+    conn.close()
+
+    return df
+
+
+def ambil_semua_hasil():
+
+    conn = koneksi_database()
+
+    df = pd.read_sql_query("""
+        SELECT
+            users.id AS user_id,
+            users.nama,
+            users.username,
+            results.id AS test_id,
+            results.jenis_tes,
+            results.nilai,
+            results.tanggal,
+            results.hasil_json
+        FROM results
+        JOIN users ON users.id = results.user_id
+        ORDER BY results.id DESC
+    """, conn)
+
+    conn.close()
+
+    return df
+
+
+def ambil_semua_siswa():
+
+    conn = koneksi_database()
+
+    df = pd.read_sql_query("""
+        SELECT id, nama, username
+        FROM users
+        WHERE role = 'Siswa'
+        ORDER BY nama
+    """, conn)
+
+    conn.close()
+
+    return df
+
+
+inisialisasi_database()
+
+# =========================================================
+# 7. BANK SOAL FOUR-TIER
+# =========================================================
+
+SOAL = [
+    {
+        "topik": "Konsep dasar gelombang elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik dapat merambat tanpa medium karena ...",
+        "jawaban": [
+            "Memerlukan partikel udara",
+            "Medan listrik dan medan magnet yang berubah saling berkaitan",
+            "Merupakan gelombang bunyi",
+            "Tidak membawa energi"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Semua gelombang memerlukan udara",
+            "Medan listrik dan medan magnet yang berubah saling berkaitan",
+            "Gelombang elektromagnetik adalah gelombang mekanik",
+            "Gelombang elektromagnetik tidak membawa energi"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Gelombang elektromagnetik dapat merambat di ruang hampa. Gelombang ini tersusun dari medan listrik dan medan magnet yang berubah serta saling berkaitan."
+    },
+
+    {
+        "topik": "Sifat gelombang elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik bersifat transversal karena ...",
+        "jawaban": [
+            "Getarnya sejajar arah rambat",
+            "Medan listrik dan medan magnet tegak lurus arah rambat",
+            "Tidak mempunyai arah rambat",
+            "Hanya merambat dalam zat padat"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Semua gelombang memiliki getaran sejajar arah rambat",
+            "Medan listrik dan medan magnet tegak lurus terhadap arah rambat",
+            "Gelombang elektromagnetik tidak memiliki arah",
+            "Gelombang elektromagnetik adalah gelombang longitudinal"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Gelombang elektromagnetik merupakan gelombang transversal. Medan listrik, medan magnet, dan arah rambat saling tegak lurus."
+    },
+
+    {
+        "topik": "Kecepatan gelombang elektromagnetik",
+        "pertanyaan": "Cepat rambat cahaya di ruang hampa mendekati ...",
+        "jawaban": [
+            "340 m/s",
+            "3 × 10⁶ m/s",
+            "3 × 10⁸ m/s",
+            "3 × 10¹⁰ m/s"
+        ],
+        "benar": 2,
+        "alasan": [
+            "Sama dengan kecepatan bunyi",
+            "Merupakan nilai pendekatan cepat rambat cahaya di ruang hampa",
+            "Semua gelombang memiliki kecepatan bunyi",
+            "Cahaya tidak mempunyai kecepatan"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Cepat rambat cahaya di ruang hampa adalah 299.792.458 m/s, atau sekitar 3 × 10⁸ m/s."
+    },
+
+    {
+        "topik": "Frekuensi dan panjang gelombang",
+        "pertanyaan": "Jika cepat rambat tetap dan frekuensi meningkat, panjang gelombang akan ...",
+        "jawaban": [
+            "Bertambah",
+            "Berkurang",
+            "Tetap",
+            "Menjadi nol"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Frekuensi dan panjang gelombang berbanding lurus",
+            "v = fλ, sehingga jika v tetap, f meningkat maka λ berkurang",
+            "Frekuensi tidak berhubungan dengan panjang gelombang",
+            "Cepat rambat menjadi nol"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Hubungan v = fλ menunjukkan bahwa ketika cepat rambat tetap, frekuensi dan panjang gelombang berbanding terbalik."
+    },
+
+    {
+        "topik": "Spektrum elektromagnetik",
+        "pertanyaan": "Urutan spektrum dari frekuensi rendah menuju tinggi adalah ...",
+        "jawaban": [
+            "Gamma, X, ultraviolet, tampak, inframerah, mikro, radio",
+            "Radio, mikro, inframerah, tampak, ultraviolet, X, gamma",
+            "Tampak, radio, gamma, mikro, ultraviolet, inframerah, X",
+            "Inframerah, radio, tampak, mikro, gamma, X, ultraviolet"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Radio memiliki frekuensi paling tinggi",
+            "Frekuensi meningkat dari radio menuju gamma",
+            "Gamma memiliki panjang gelombang terbesar",
+            "Urutan spektrum tidak berkaitan dengan frekuensi"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Urutannya adalah radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, dan sinar gamma."
+    },
+
+    {
+        "topik": "Gelombang radio",
+        "pertanyaan": "Gelombang radio dimanfaatkan untuk ...",
+        "jawaban": [
+            "Komunikasi dan penyiaran",
+            "Pemeriksaan tulang",
+            "Menghasilkan suara secara langsung",
+            "Melihat benda dengan mata"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Gelombang radio dapat membawa informasi melalui modulasi",
+            "Gelombang radio memiliki energi foton tertinggi",
+            "Gelombang radio merupakan gelombang bunyi",
             "Mata manusia dapat melihat gelombang radio"
         ],
         "alasan_benar": 0,
@@ -288,10 +663,6 @@
     }
 ]
 
-# Gunakan 10 soal pertama dari bank soal.
-SOAL = SOAL[:10]
-
-
 # =========================================================
 # 8. ANALISIS FOUR-TIER
 # =========================================================
@@ -319,6 +690,7 @@ def analisis_jawaban(jawaban_siswa):
 
             if yakin_jawaban and yakin_alasan:
                 kategori = "Paham Konsep"
+
             else:
                 kategori = "Paham Konsep, Belum Yakin"
 
@@ -326,49 +698,53 @@ def analisis_jawaban(jawaban_siswa):
 
             if yakin_jawaban and yakin_alasan:
                 kategori = "Indikasi Miskonsepsi"
+
             else:
                 kategori = "Belum Memahami Konsep"
 
         elif benar_jawaban and not benar_alasan:
+
             kategori = "Jawaban Benar, Alasan Keliru"
 
         else:
+
             kategori = "Jawaban Salah, Alasan Benar"
 
         hasil.append({
+
             "nomor": nomor + 1,
+
             "topik": soal["topik"],
+
             "pertanyaan": soal["pertanyaan"],
+
             "jawaban_siswa": jawaban["jawaban"],
+
             "alasan_siswa": jawaban["alasan"],
+
             "keyakinan_jawaban": jawaban["yakin_jawaban"],
+
             "keyakinan_alasan": jawaban["yakin_alasan"],
+
             "jawaban_benar": benar_jawaban,
+
             "alasan_benar": benar_alasan,
+
             "kategori": kategori,
-            "jawaban_seharusnya": soal["jawaban"][soal["benar"]],
-            "alasan_seharusnya": soal["alasan"][soal["alasan_benar"]],
+
+            "jawaban_seharusnya":
+                soal["jawaban"][soal["benar"]],
+
+            "alasan_seharusnya":
+                soal["alasan"][soal["alasan_benar"]],
+
             "penjelasan": soal["penjelasan"]
+
         })
 
     return hasil
 
-
 # =========================================================
-# 9. PERHITUNGAN NILAI
-# =========================================================
-
-def hitung_nilai(hasil):
-
-    if not hasil:
-        return 0
-
-    skor_jawaban = sum(
-        1 for item in hasil if item["jawaban_benar"]
-    )
-
-    return round((skor_jawaban / len(hasil)) * 100, 2)
-    # =========================================================
 # 9. PERHITUNGAN NILAI
 # =========================================================
 
@@ -394,7 +770,6 @@ def hitung_nilai(hasil):
 
     return round(nilai, 2)
 
-
 def hitung_persentase(hasil):
 
     if not hasil:
@@ -406,7 +781,386 @@ def hitung_persentase(hasil):
     )
 
     return round(jumlah / len(hasil) * 100, 2)
-    # =========================================================
+
+# =========================================================
+# 10. MATERI REMEDIAL
+# =========================================================
+
+MATERI = {
+
+    "Konsep dasar gelombang elektromagnetik": {
+        "konsep": """
+Gelombang elektromagnetik merupakan gelombang yang tersusun
+dari medan listrik dan medan magnet yang berubah.
+
+Gelombang elektromagnetik dapat merambat tanpa medium material.
+Contohnya, cahaya Matahari dapat mencapai Bumi melalui ruang hampa.
+""",
+
+        "rumus": [
+            ("c = 1/√(μ₀ε₀)", "Hubungan konstanta elektromagnetik dengan cepat rambat cahaya")
+        ],
+
+        "contoh": "Cahaya Matahari merambat melalui ruang antara Matahari dan Bumi tanpa memerlukan udara."
+    },
+
+    "Sifat gelombang elektromagnetik": {
+        "konsep": """
+Gelombang elektromagnetik bersifat transversal.
+
+Medan listrik (E), medan magnet (B), dan arah rambat
+gelombang saling tegak lurus.
+""",
+
+        "rumus": [
+            ("E ⟂ B", "Medan listrik tegak lurus medan magnet"),
+            ("E ⟂ arah rambat", "Medan listrik tegak lurus arah rambat"),
+            ("B ⟂ arah rambat", "Medan magnet tegak lurus arah rambat")
+        ],
+
+        "contoh": "Polarisasi cahaya menggunakan filter untuk membatasi arah getar medan listrik."
+    },
+
+    "Kecepatan gelombang elektromagnetik": {
+        "konsep": """
+Di ruang hampa, gelombang elektromagnetik merambat
+dengan kecepatan cahaya.
+""",
+
+        "rumus": [
+            ("c ≈ 3 × 10⁸ m/s", "Kecepatan cahaya di ruang hampa")
+        ],
+
+        "contoh": "Cahaya menempuh jarak sekitar 300.000 km dalam satu detik di ruang hampa."
+    },
+
+    "Frekuensi dan panjang gelombang": {
+        "konsep": """
+Frekuensi adalah jumlah gelombang yang melewati titik
+dalam satu detik.
+
+Panjang gelombang adalah jarak antara dua titik sefase
+yang berurutan.
+""",
+
+        "rumus": [
+            ("v = fλ", "Hubungan cepat rambat, frekuensi, dan panjang gelombang"),
+            ("λ = v/f", "Menghitung panjang gelombang"),
+            ("f = v/λ", "Menghitung frekuensi")
+        ],
+
+        "contoh": """
+Jika v = 3 × 10⁸ m/s dan f = 6 × 10⁸ Hz:
+
+λ = v/f
+λ = (3 × 10⁸)/(6 × 10⁸)
+λ = 0,5 m
+"""
+    },
+
+    "Spektrum elektromagnetik": {
+        "konsep": """
+Urutan frekuensi rendah ke tinggi:
+
+Radio → Mikro → Inframerah → Tampak →
+Ultraviolet → Sinar-X → Gamma.
+
+Semakin tinggi frekuensi, semakin pendek panjang gelombang
+dan semakin besar energi fotonnya.
+""",
+
+        "rumus": [
+            ("c = fλ", "Hubungan frekuensi dan panjang gelombang"),
+            ("E = hf", "Energi foton")
+        ],
+
+        "contoh": "Sinar gamma memiliki frekuensi lebih tinggi daripada cahaya tampak."
+    },
+
+    "Gelombang radio": {
+        "konsep": """
+Gelombang radio digunakan untuk komunikasi, penyiaran,
+dan transmisi informasi.
+""",
+
+        "rumus": [
+            ("c = fλ", "Hubungan cepat rambat, frekuensi, dan panjang gelombang")
+        ],
+
+        "contoh": "Siaran radio FM menggunakan gelombang elektromagnetik untuk membawa informasi suara."
+    },
+
+    "Gelombang mikro": {
+        "konsep": """
+Gelombang mikro digunakan pada radar, komunikasi satelit,
+dan oven microwave.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi foton"),
+            ("v = fλ", "Hubungan gelombang")
+        ],
+
+        "contoh": "Oven microwave memanfaatkan interaksi gelombang mikro dengan bahan makanan."
+    },
+
+    "Inframerah": {
+        "konsep": """
+Inframerah merupakan radiasi elektromagnetik yang
+berkaitan dengan radiasi termal.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi foton")
+        ],
+
+        "contoh": "Kamera termal mendeteksi radiasi inframerah dari objek."
+    },
+
+    "Cahaya tampak": {
+        "konsep": """
+Cahaya tampak merupakan rentang elektromagnetik
+yang dapat dideteksi oleh mata manusia.
+""",
+
+        "rumus": [
+            ("c = fλ", "Hubungan frekuensi dan panjang gelombang")
+        ],
+
+        "contoh": "Cahaya putih dapat diuraikan menjadi berbagai warna."
+    },
+
+    "Ultraviolet": {
+        "konsep": """
+Ultraviolet memiliki frekuensi lebih tinggi daripada
+cahaya tampak.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi foton berbanding lurus dengan frekuensi")
+        ],
+
+        "contoh": "Radiasi ultraviolet dari Matahari dapat menyebabkan perubahan pada kulit."
+    },
+
+    "Sinar-X": {
+        "konsep": """
+Sinar-X dapat menembus materi dan mengalami penyerapan
+berbeda oleh berbagai jaringan.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi foton")
+        ],
+
+        "contoh": "Sinar-X digunakan untuk menghasilkan citra tulang."
+    },
+
+    "Sinar gamma": {
+        "konsep": """
+Sinar gamma memiliki frekuensi sangat tinggi
+dan energi foton tinggi.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi foton")
+        ],
+
+        "contoh": "Sinar gamma dapat berasal dari proses nuklir dan digunakan dalam bidang tertentu."
+    },
+
+    "Energi foton": {
+        "konsep": """
+Energi foton berbanding lurus dengan frekuensinya.
+Semakin tinggi frekuensi, semakin besar energi foton.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi berdasarkan frekuensi"),
+            ("E = hc/λ", "Energi berdasarkan panjang gelombang")
+        ],
+
+        "contoh": """
+f = 5 × 10¹⁴ Hz
+h = 6,626 × 10⁻³⁴ J.s
+
+E = hf
+E = 6,626 × 10⁻³⁴ × 5 × 10¹⁴
+E = 3,313 × 10⁻¹⁹ J
+"""
+    },
+
+    "Pemantulan gelombang": {
+        "konsep": """
+Pada pemantulan cahaya, sudut datang sama dengan
+sudut pantul.
+""",
+
+        "rumus": [
+            ("θᵢ = θᵣ", "Sudut datang sama dengan sudut pantul")
+        ],
+
+        "contoh": "Cahaya yang mengenai cermin datar dipantulkan dengan sudut yang sama terhadap garis normal."
+    },
+
+    "Pembiasan gelombang": {
+        "konsep": """
+Ketika cahaya memasuki medium berbeda,
+frekuensinya tetap.
+
+Cepat rambat dan panjang gelombangnya dapat berubah.
+""",
+
+        "rumus": [
+            ("n₁ sin θ₁ = n₂ sin θ₂", "Hukum Snellius"),
+            ("v = c/n", "Kecepatan cahaya dalam medium")
+        ],
+
+        "contoh": "Pensil dalam air tampak bengkok karena cahaya mengalami pembiasan."
+    },
+
+    "Polarisasi": {
+        "konsep": """
+Polarisasi adalah pembatasan arah getar gelombang transversal.
+""",
+
+        "rumus": [
+            ("I = I₀ cos²θ", "Hukum Malus untuk cahaya terpolarisasi")
+        ],
+
+        "contoh": "Kacamata polarisasi mengurangi cahaya pantulan tertentu."
+    },
+
+    "Energi gelombang elektromagnetik": {
+        "konsep": """
+Gelombang elektromagnetik membawa energi yang dapat
+ditransfer kepada benda ketika terjadi interaksi.
+""",
+
+        "rumus": [
+            ("E = hf", "Energi foton"),
+            ("P = E/t", "Daya merupakan energi per waktu")
+        ],
+
+        "contoh": "Panel surya mengubah energi radiasi elektromagnetik menjadi energi listrik."
+    },
+
+    "Kecepatan dalam medium": {
+        "konsep": """
+Indeks bias menunjukkan hubungan antara kecepatan
+cahaya di ruang hampa dan dalam medium.
+""",
+
+        "rumus": [
+            ("n = c/v", "Indeks bias"),
+            ("v = c/n", "Kecepatan dalam medium")
+        ],
+
+        "contoh": "Cahaya merambat lebih lambat dalam kaca daripada di ruang hampa."
+    },
+
+    "Panjang gelombang": {
+        "konsep": """
+Panjang gelombang dipengaruhi oleh cepat rambat
+dan frekuensi.
+""",
+
+        "rumus": [
+            ("λ = v/f", "Panjang gelombang"),
+            ("λ = c/f", "Panjang gelombang di ruang hampa")
+        ],
+
+        "contoh": "Jika frekuensi tetap dan cahaya memasuki medium dengan kecepatan lebih rendah, panjang gelombangnya berkurang."
+    },
+
+    "Aplikasi gelombang elektromagnetik": {
+        "konsep": """
+Gelombang elektromagnetik digunakan dalam komunikasi,
+kesehatan, penginderaan, dan teknologi.
+""",
+
+        "rumus": [
+            ("c = fλ", "Hubungan frekuensi dan panjang gelombang"),
+            ("E = hf", "Energi foton")
+        ],
+
+        "contoh": "Radio digunakan untuk penyiaran, microwave untuk komunikasi, dan sinar-X untuk pencitraan medis."
+    }
+}
+
+# =========================================================
+# 11. SESSION STATE
+# =========================================================
+
+DEFAULT_STATE = {
+    "pengguna": None,
+    "halaman": "Beranda",
+    "hasil_terakhir": [],
+    "nilai_terakhir": 0,
+    "jawaban_terakhir": []
+}
+
+for key, value in DEFAULT_STATE.items():
+
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+def ke_halaman(nama):
+
+    st.session_state.halaman = nama
+
+def keluar():
+
+    st.session_state.pengguna = None
+    st.session_state.halaman = "Beranda"
+    st.session_state.hasil_terakhir = []
+    st.session_state.nilai_terakhir = 0
+    st.session_state.jawaban_terakhir = []
+
+# =========================================================
+# 12. STYLE
+# =========================================================
+
+def style_aplikasi():
+
+    st.markdown("""
+    <style>
+
+    .hero {
+        background: linear-gradient(120deg,#17345e,#087f8c);
+        color: white;
+        padding: 28px;
+        border-radius: 16px;
+        text-align: center;
+        margin-bottom: 25px;
+    }
+
+    .hero h1 {
+        font-size: 38px;
+        font-weight: 800;
+    }
+
+    .small-note {
+        color: #777;
+        font-size: 14px;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+def header():
+
+    st.markdown("""
+    <div class="hero">
+        <h1>🧠 MISCONCEPT AI</h1>
+        <p>Website Deteksi Miskonsepsi Fisika SMA</p>
+        <p>Materi Gelombang Elektromagnetik</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+style_aplikasi()
+
+# =========================================================
 # 13. BERANDA
 # =========================================================
 
@@ -414,10 +1168,10 @@ def halaman_beranda():
 
     header()
 
-    st.title("Selamat Datang di MISKONSEPTION")
+    st.title("Selamat Datang di MISCONCEPT AI")
 
     st.write("""
-    MISKONSEPTION merupakan media pembelajaran fisika
+    MISCONCEPT AI merupakan media pembelajaran fisika
     yang dirancang untuk membantu siswa memahami konsep
     gelombang elektromagnetik dan mengidentifikasi
     kemungkinan miskonsepsi melalui tes diagnostik Four-Tier.
@@ -425,7 +1179,7 @@ def halaman_beranda():
 
     a, b, c = st.columns(3)
 
-    a.metric("Jumlah Soal", len(SOAL))
+    a.metric("Jumlah Soal", "20")
     b.metric("Metode", "Four-Tier")
     c.metric("Materi", "Gelombang Elektromagnetik")
 
@@ -458,15 +1212,16 @@ def halaman_beranda():
     with col1:
 
         if st.button("Login", use_container_width=True):
+
             ke_halaman("Login")
             st.rerun()
 
     with col2:
 
         if st.button("Daftar Siswa", use_container_width=True):
+
             ke_halaman("Daftar")
             st.rerun()
-
 
 # =========================================================
 # 14. LOGIN
@@ -516,7 +1271,6 @@ def halaman_login():
         ke_halaman("Beranda")
         st.rerun()
 
-
 # =========================================================
 # 15. PENDAFTARAN
 # =========================================================
@@ -548,12 +1302,15 @@ def halaman_daftar():
     if kirim:
 
         if not nama.strip() or not username.strip() or not password:
+
             st.warning("Semua kolom harus diisi.")
 
         elif len(password) < 8:
+
             st.warning("Password minimal 8 karakter.")
 
         elif password != konfirmasi:
+
             st.error("Konfirmasi password tidak sesuai.")
 
         else:
@@ -573,7 +1330,6 @@ def halaman_daftar():
 
         ke_halaman("Beranda")
         st.rerun()
-
 
 # =========================================================
 # 16. DASHBOARD SISWA
@@ -598,7 +1354,9 @@ def halaman_dashboard():
     a, b, c = st.columns(3)
 
     a.metric("Jumlah Tes", len(riwayat))
-    b.metric("Jumlah Soal", len(SOAL))
+
+    b.metric("Jumlah Soal", 20)
+
     c.metric("Materi", "Gelombang EM")
 
     st.subheader("Aktivitas Pembelajaran")
@@ -647,107 +1405,27 @@ def halaman_dashboard():
     with col1:
 
         if st.button("📊 Hasil Diagnosis", use_container_width=True):
+
             ke_halaman("Hasil Diagnosis")
             st.rerun()
 
     with col2:
 
         if st.button("🗺️ Peta Miskonsepsi", use_container_width=True):
+
             ke_halaman("Peta Miskonsepsi")
             st.rerun()
 
     with col3:
 
         if st.button("📚 Remedial", use_container_width=True):
+
             ke_halaman("Pembelajaran Remedial")
             st.rerun()
-
 
 # =========================================================
 # 17. TES FOUR-TIER
 # =========================================================
-
-HTML_MONITORING = """
-<div id="monitor-box" style="font-family:Arial,sans-serif;padding:12px;border:1px solid #d99b27;border-radius:10px;">
-  <b>Pengawasan ujian aktif</b>
-  <div id="monitor-status" style="margin-top:6px;">Belum ada peringatan.</div>
-  <small>Jangan berpindah tab atau meninggalkan halaman ujian.</small>
-</div>
-<script>
-(() => {
-  let count = 0, last = 0;
-  const status = document.getElementById("monitor-status");
-
-  function beep() {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new Ctx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.frequency.value = 880;
-      gain.gain.value = 0.12;
-
-      osc.start();
-      osc.stop(ctx.currentTime + 0.22);
-    } catch(e) {}
-  }
-
-  function warn(reason) {
-
-    const now = Date.now();
-
-    if (now - last < 1500) return;
-
-    last = now;
-    count++;
-
-    beep();
-
-    if (count === 1) {
-      status.textContent =
-        "Peringatan 1/3: " + reason +
-        ". Tetap berada di halaman ujian.";
-    }
-
-    else if (count === 2) {
-      status.textContent =
-        "Peringatan 2/3: " + reason +
-        ". Pelanggaran berikutnya perlu ditinjau guru.";
-    }
-
-    else {
-      status.textContent =
-        "Peringatan 3/3: beberapa kali meninggalkan halaman. Hubungi pengawas/guru.";
-
-      status.style.color = "#b42318";
-      status.style.fontWeight = "bold";
-    }
-  }
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      warn("Tab atau halaman tidak aktif");
-    }
-  });
-
-  window.addEventListener("blur", () => {
-    warn("Jendela ujian kehilangan fokus");
-  });
-
-  document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement) {
-      warn("Mode layar penuh ditutup");
-    }
-  });
-
-})();
-</script>
-"""
-
 
 def halaman_tes():
 
@@ -762,47 +1440,6 @@ def halaman_tes():
     3. Pilih alasan yang paling sesuai.
     4. Tentukan tingkat keyakinan terhadap alasan.
     """)
-
-    mode_keamanan = st.radio(
-        "Pilih mode keamanan ujian",
-        ["Website Monitoring", "Safe Exam Browser (SEB)"],
-        horizontal=True,
-        key="mode_keamanan_ujian"
-    )
-
-    if mode_keamanan == "Website Monitoring":
-
-        st.warning(
-            "Mode ini memberi peringatan saat tab disembunyikan, "
-            "jendela kehilangan fokus, atau layar penuh ditutup. "
-            "Browser biasa tidak dapat memastikan siswa membuka Google/AI. "
-            "Peringatan pada prototipe ini berjalan di sisi browser dan "
-            "belum menjadi catatan pelanggaran yang tersimpan di database."
-        )
-
-        components.html(
-            HTML_MONITORING,
-            height=105,
-            scrolling=False
-        )
-
-    else:
-
-        st.warning(
-            "Memilih opsi SEB di website tidak otomatis mengunci perangkat. "
-            "Siswa harus membuka ujian melalui Safe Exam Browser yang sudah "
-            "dipasang dan dikonfigurasi oleh guru/sekolah."
-        )
-
-        st.markdown(
-            "Guru perlu menyiapkan konfigurasi SEB, alamat ujian, dan "
-            "pembatasan aplikasi/peramban sebelum ujian dimulai."
-        )
-
-        st.checkbox(
-            "Saya menggunakan Safe Exam Browser yang sudah disiapkan sekolah.",
-            key="konfirmasi_seb"
-        )
 
     jawaban_siswa = []
 
@@ -874,14 +1511,7 @@ def halaman_tes():
             for item in jawaban_siswa
         )
 
-        if (
-            mode_keamanan == "Safe Exam Browser (SEB)"
-            and not st.session_state.get("konfirmasi_seb", False)
-        ):
-
-            st.error("Konfirmasi penggunaan SEB terlebih dahulu.")
-
-        elif not lengkap:
+        if not lengkap:
 
             st.warning(
                 "Masih ada soal yang belum dijawab. "
@@ -901,7 +1531,9 @@ def halaman_tes():
             nilai = hitung_nilai(hasil)
 
             st.session_state.hasil_terakhir = hasil
+
             st.session_state.nilai_terakhir = nilai
+
             st.session_state.jawaban_terakhir = jawaban_siswa
 
             simpan_hasil(
@@ -914,8 +1546,10 @@ def halaman_tes():
             st.session_state.halaman = "Hasil Diagnosis"
 
             st.success("Tes berhasil dianalisis.")
+
             st.rerun()
-            # =========================================================
+
+# =========================================================
 # 18. HASIL DIAGNOSIS
 # =========================================================
 
@@ -1021,7 +1655,7 @@ def halaman_hasil():
         )
 
     st.caption("""
-    Nilai merupakan skor jawaban dan alasan.
+    Nilai merupakan skor jawaban dan alasan. 
     Kategori diagnosis memperhatikan pola jawaban serta keyakinan.
     Indikasi miskonsepsi bukan diagnosis permanen terhadap siswa.
     """)
@@ -1075,7 +1709,9 @@ def halaman_hasil():
                 + item["alasan_seharusnya"]
             )
 
-            st.info(item["penjelasan"])
+            st.info(
+                item["penjelasan"]
+            )
 
             if item["kategori"] != "Paham Konsep":
 
@@ -1096,7 +1732,6 @@ def halaman_hasil():
 
         ke_halaman("Pembelajaran Remedial")
         st.rerun()
-
 
 # =========================================================
 # 19. PETA MISKONSEPSI
@@ -1216,7 +1851,9 @@ def halaman_peta():
 
         for topik in jumlah.index:
 
-            st.write("🔴 **" + topik + "**")
+            st.write(
+                "🔴 **" + topik + "**"
+            )
 
             st.write(
                 "Jumlah soal dengan indikasi miskonsepsi:",
@@ -1228,7 +1865,6 @@ def halaman_peta():
     Hasil ini tidak dapat digunakan untuk menyimpulkan
     miskonsepsi permanen tanpa pemeriksaan lanjutan.
     """)
-
 
 # =========================================================
 # 20. PEMBELAJARAN REMEDIAL
@@ -1334,8 +1970,7 @@ def halaman_remedial():
 
     pertanyaan_latihan = latihan.get(
         topik,
-        "Jelaskan konsep " + topik +
-        " dan berikan contoh penerapannya dalam kehidupan sehari-hari."
+        "Jelaskan konsep " + topik + " dan berikan contoh penerapannya dalam kehidupan sehari-hari."
     )
 
     st.write(pertanyaan_latihan)
@@ -1374,7 +2009,6 @@ def halaman_remedial():
 
         ke_halaman("Hasil Diagnosis")
         st.rerun()
-
 
 # =========================================================
 # 21. LABORATORIUM VIRTUAL
@@ -1428,6 +2062,8 @@ def halaman_laboratorium():
     Indeks bias 1,0 digunakan sebagai pendekatan ruang hampa.
     """)
 
+    # Perhitungan
+
     lambda_vakum = C / frekuensi
 
     kecepatan_medium = C / indeks_bias
@@ -1439,6 +2075,10 @@ def halaman_laboratorium():
     energi = H * frekuensi
 
     energi_ev = energi / 1.602176634e-19
+
+    # =====================================================
+    # METRIK
+    # =====================================================
 
     st.subheader("B. Hasil Perhitungan")
 
@@ -1476,14 +2116,24 @@ def halaman_laboratorium():
         f"{energi_ev:.3e} eV"
     )
 
+    # =====================================================
+    # RUMUS
+    # =====================================================
+
     st.subheader("C. Rumus yang Digunakan")
 
     st.latex(r"c = f\lambda_0")
+
     st.latex(r"\lambda_0 = \frac{c}{f}")
+
     st.latex(r"n = \frac{c}{v}")
+
     st.latex(r"v = \frac{c}{n}")
+
     st.latex(r"\lambda_m = \frac{v}{f}")
+
     st.latex(r"E = hf")
+
     st.latex(r"T = \frac{1}{f}")
 
     st.write("**Keterangan:**")
@@ -1501,6 +2151,10 @@ def halaman_laboratorium():
     """)
 
     st.divider()
+
+    # =====================================================
+    # CONTOH PERHITUNGAN
+    # =====================================================
 
     st.subheader("D. Langkah Perhitungan")
 
@@ -1546,6 +2200,10 @@ def halaman_laboratorium():
 
     st.divider()
 
+    # =====================================================
+    # GRAFIK GELOMBANG
+    # =====================================================
+
     st.subheader("E. Grafik Gelombang")
 
     jumlah_gelombang = st.slider(
@@ -1582,10 +2240,20 @@ def halaman_laboratorium():
         label="Medan magnet (relatif)"
     )
 
-    ax.set_title("Representasi Gelombang Elektromagnetik")
-    ax.set_xlabel("Posisi (m)")
-    ax.set_ylabel("Amplitudo relatif")
+    ax.set_title(
+        "Representasi Gelombang Elektromagnetik"
+    )
+
+    ax.set_xlabel(
+        "Posisi (m)"
+    )
+
+    ax.set_ylabel(
+        "Amplitudo relatif"
+    )
+
     ax.grid(True)
+
     ax.legend()
 
     plt.tight_layout()
@@ -1604,7 +2272,8 @@ def halaman_laboratorium():
     Amplitudo yang digunakan bersifat relatif dan bukan
     hasil pengukuran medan listrik atau medan magnet.
     """)
-        st.divider()
+
+    st.divider()
 
     # =====================================================
     # SPEKTRUM ELEKTROMAGNETIK
@@ -1670,15 +2339,22 @@ def halaman_laboratorium():
         batas[-1]
     )
 
-    ax.set_ylim(0, 1)
+    ax.set_ylim(
+        0,
+        1
+    )
 
     ax.set_yticks([])
 
     ax.set_xlabel("Frekuensi (Hz)")
 
-    ax.set_title("Spektrum Elektromagnetik")
+    ax.set_title(
+        "Spektrum Elektromagnetik"
+    )
 
-    ax.legend(loc="upper center")
+    ax.legend(
+        loc="upper center"
+    )
 
     ax.grid(
         axis="x",
@@ -1698,6 +2374,10 @@ def halaman_laboratorium():
     dapat memiliki batas yang berbeda pada berbagai referensi.
     """)
 
+    # =====================================================
+    # INTERPRETASI
+    # =====================================================
+
     st.subheader("G. Interpretasi Hasil")
 
     st.write(
@@ -1716,6 +2396,7 @@ def halaman_laboratorium():
 
         Frekuensi tetap karena ditentukan oleh sumber.
         """
+
     )
 
     if indeks_bias > 1:
@@ -1732,7 +2413,6 @@ def halaman_laboratorium():
         Indeks bias 1,0 digunakan sebagai pendekatan
         ruang hampa. Kecepatan gelombang sama dengan c.
         """)
-
 
 # =========================================================
 # 22. RIWAYAT TES
@@ -1821,18 +2501,22 @@ def halaman_riwayat():
     )
 
     ax.set_xlabel("Tanggal Tes")
+
     ax.set_ylabel("Nilai")
+
     ax.set_ylim(0, 100)
+
     ax.set_title("Perkembangan Nilai Tes")
+
     ax.grid(True)
 
     plt.xticks(rotation=30)
+
     plt.tight_layout()
 
     st.pyplot(fig)
 
     plt.close(fig)
-
 
 # =========================================================
 # 23. DASHBOARD GURU
@@ -1850,9 +2534,15 @@ def halaman_guru():
 
     a, b, c, d = st.columns(4)
 
-    a.metric("Jumlah Siswa", len(siswa))
+    a.metric(
+        "Jumlah Siswa",
+        len(siswa)
+    )
 
-    b.metric("Jumlah Tes", len(hasil))
+    b.metric(
+        "Jumlah Tes",
+        len(hasil)
+    )
 
     rata_rata = (
         round(hasil["nilai"].mean(), 2)
@@ -1860,7 +2550,10 @@ def halaman_guru():
         else 0
     )
 
-    c.metric("Rata-rata Nilai", rata_rata)
+    c.metric(
+        "Rata-rata Nilai",
+        rata_rata
+    )
 
     d.metric(
         "Nilai Tertinggi",
@@ -1901,6 +2594,10 @@ def halaman_guru():
 
     st.divider()
 
+    # =====================================================
+    # GRAFIK NILAI SISWA
+    # =====================================================
+
     st.subheader("Grafik Nilai Siswa")
 
     grafik_nilai = hasil.copy()
@@ -1919,7 +2616,9 @@ def halaman_guru():
     )
 
     ax.set_ylabel("Nilai")
+
     ax.set_ylim(0, 100)
+
     ax.set_title("Nilai Tes Siswa")
 
     ax.grid(
@@ -1940,6 +2639,10 @@ def halaman_guru():
     plt.close(fig)
 
     st.divider()
+
+    # =====================================================
+    # ANALISIS DIAGNOSIS SISWA
+    # =====================================================
 
     st.subheader("Analisis Kategori Diagnosis")
 
@@ -1997,8 +2700,12 @@ def halaman_guru():
         )
 
         ax.set_xlabel("Jumlah")
+
         ax.set_ylabel("Kategori")
-        ax.set_title("Distribusi Diagnosis Seluruh Siswa")
+
+        ax.set_title(
+            "Distribusi Diagnosis Seluruh Siswa"
+        )
 
         ax.grid(
             axis="x",
@@ -2033,6 +2740,10 @@ def halaman_guru():
         )
 
     st.divider()
+
+    # =====================================================
+    # EKSPOR EXCEL
+    # =====================================================
 
     st.subheader("Ekspor Laporan")
 
@@ -2071,10 +2782,11 @@ def halaman_guru():
     st.download_button(
         label="📥 Download Laporan Excel",
         data=output.getvalue(),
-        file_name="laporan_miskonseption.xlsx",
+        file_name="laporan_misconcept_ai.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
+
 # =========================================================
 # 24. SIDEBAR DAN NAVIGASI
 # =========================================================
@@ -2083,7 +2795,7 @@ def tampilkan_sidebar():
 
     pengguna = st.session_state.pengguna
 
-    st.sidebar.title("🧠 MISKONSEPTION")
+    st.sidebar.title("🧠 MISCONCEPT AI")
 
     if pengguna is None:
 
@@ -2157,7 +2869,6 @@ def tampilkan_sidebar():
 
             keluar()
             st.rerun()
-
 
 # =========================================================
 # 25. ROUTING HALAMAN
@@ -2235,9 +2946,774 @@ def jalankan_aplikasi():
 
         halaman_beranda()
 
-
 # =========================================================
-# 26. JALANKAN APLIKASI
+# 26. JALANKAN
 # =========================================================
 
 jalankan_aplikasi()
+import streamlit as st
+import sqlite3
+import hashlib
+import secrets
+import json
+import io
+import math
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from datetime import datetime
+
+# =========================================================
+# 1. KONFIGURASI
+# =========================================================
+
+st.set_page_config(
+    page_title="MISKONSEPTION",
+    page_icon="🧠",
+    layout="wide"
+)
+
+# Nama database tidak diubah agar data lama tetap digunakan.
+DATABASE = "misconcept_ai.db"
+
+C = 299792458          # Kecepatan cahaya (m/s)
+H = 6.62607015e-34    # Konstanta Planck (J.s)
+
+
+# =========================================================
+# 2. DATABASE
+# =========================================================
+
+def koneksi_database():
+    conn = sqlite3.connect(DATABASE)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def inisialisasi_database():
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nama TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            jenis_tes TEXT NOT NULL,
+            nilai REAL NOT NULL,
+            hasil_json TEXT NOT NULL,
+            tanggal TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# 3. PASSWORD
+# =========================================================
+
+def buat_hash_password(password, salt=None):
+
+    if salt is None:
+        salt = secrets.token_hex(16)
+
+    hasil = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        100000
+    ).hex()
+
+    return salt, hasil
+
+
+def verifikasi_password(password, salt, hash_asli):
+
+    _, hash_baru = buat_hash_password(password, salt)
+
+    return secrets.compare_digest(
+        hash_baru,
+        hash_asli
+    )
+
+
+# =========================================================
+# 4. REGISTRASI
+# =========================================================
+
+def daftar_siswa(nama, username, password):
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    salt, password_hash = buat_hash_password(password)
+
+    try:
+
+        cursor.execute("""
+            INSERT INTO users
+            (nama, username, salt, password_hash, role)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            nama,
+            username,
+            salt,
+            password_hash,
+            "Siswa"
+        ))
+
+        conn.commit()
+
+        berhasil = True
+        pesan = "Pendaftaran berhasil."
+
+    except sqlite3.IntegrityError:
+
+        berhasil = False
+        pesan = "Username telah digunakan."
+
+    conn.close()
+
+    return berhasil, pesan
+
+
+# =========================================================
+# 5. LOGIN
+# =========================================================
+
+def login_pengguna(username, password):
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, nama, username, salt, password_hash, role
+        FROM users
+        WHERE username = ?
+    """, (username,))
+
+    data = cursor.fetchone()
+    conn.close()
+
+    if data is None:
+        return None
+
+    if verifikasi_password(
+        password,
+        data[3],
+        data[4]
+    ):
+
+        return {
+            "id": data[0],
+            "nama": data[1],
+            "username": data[2],
+            "role": data[5]
+        }
+
+    return None
+
+
+# =========================================================
+# 6. MENYIMPAN HASIL
+# =========================================================
+
+def simpan_hasil(user_id, jenis_tes, nilai, hasil):
+
+    conn = koneksi_database()
+
+    conn.execute("""
+        INSERT INTO results
+        (user_id, jenis_tes, nilai, hasil_json, tanggal)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        jenis_tes,
+        nilai,
+        json.dumps(hasil, ensure_ascii=False),
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def ambil_riwayat_siswa(user_id):
+
+    conn = koneksi_database()
+
+    df = pd.read_sql_query("""
+        SELECT id, jenis_tes, nilai, tanggal, hasil_json
+        FROM results
+        WHERE user_id = ?
+        ORDER BY id DESC
+    """, conn, params=(user_id,))
+
+    conn.close()
+
+    return df
+
+
+def ambil_semua_hasil():
+
+    conn = koneksi_database()
+
+    df = pd.read_sql_query("""
+        SELECT
+            users.id AS user_id,
+            users.nama,
+            users.username,
+            results.id AS test_id,
+            results.jenis_tes,
+            results.nilai,
+            results.tanggal,
+            results.hasil_json
+        FROM results
+        JOIN users ON users.id = results.user_id
+        ORDER BY results.id DESC
+    """, conn)
+
+    conn.close()
+
+    return df
+
+
+def ambil_semua_siswa():
+
+    conn = koneksi_database()
+
+    df = pd.read_sql_query("""
+        SELECT id, nama, username
+        FROM users
+        WHERE role = 'Siswa'
+        ORDER BY nama
+    """, conn)
+
+    conn.close()
+
+    return df
+
+
+inisialisasi_database()
+
+
+# =========================================================
+# 7. BANK SOAL FOUR-TIER
+# =========================================================
+
+SOAL = [
+    {
+        "topik": "Konsep dasar gelombang elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik dapat merambat tanpa medium karena ...",
+        "jawaban": [
+            "Memerlukan partikel udara",
+            "Medan listrik dan medan magnet yang berubah saling berkaitan",
+            "Merupakan gelombang bunyi",
+            "Tidak membawa energi"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Semua gelombang memerlukan udara",
+            "Medan listrik dan medan magnet yang berubah saling berkaitan",
+            "Gelombang elektromagnetik adalah gelombang mekanik",
+            "Gelombang elektromagnetik tidak membawa energi"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Gelombang elektromagnetik dapat merambat di ruang hampa. Gelombang ini tersusun dari medan listrik dan medan magnet yang berubah serta saling berkaitan."
+    },
+    {
+        "topik": "Sifat gelombang elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik bersifat transversal karena ...",
+        "jawaban": [
+            "Getarnya sejajar arah rambat",
+            "Medan listrik dan medan magnet tegak lurus arah rambat",
+            "Tidak mempunyai arah rambat",
+            "Hanya merambat dalam zat padat"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Semua gelombang memiliki getaran sejajar arah rambat",
+            "Medan listrik dan medan magnet tegak lurus terhadap arah rambat",
+            "Gelombang elektromagnetik tidak memiliki arah",
+            "Gelombang elektromagnetik adalah gelombang longitudinal"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Gelombang elektromagnetik merupakan gelombang transversal. Medan listrik, medan magnet, dan arah rambat saling tegak lurus."
+    },
+    {
+        "topik": "Kecepatan gelombang elektromagnetik",
+        "pertanyaan": "Cepat rambat cahaya di ruang hampa mendekati ...",
+        "jawaban": [
+            "340 m/s",
+            "3 × 10⁶ m/s",
+            "3 × 10⁸ m/s",
+            "3 × 10¹⁰ m/s"
+        ],
+        "benar": 2,
+        "alasan": [
+            "Sama dengan kecepatan bunyi",
+            "Merupakan nilai pendekatan cepat rambat cahaya di ruang hampa",
+            "Semua gelombang memiliki kecepatan bunyi",
+            "Cahaya tidak mempunyai kecepatan"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Cepat rambat cahaya di ruang hampa adalah 299.792.458 m/s, atau sekitar 3 × 10⁸ m/s."
+    },
+    {
+        "topik": "Frekuensi dan panjang gelombang",
+        "pertanyaan": "Jika cepat rambat tetap dan frekuensi meningkat, panjang gelombang akan ...",
+        "jawaban": [
+            "Bertambah",
+            "Berkurang",
+            "Tetap",
+            "Menjadi nol"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Frekuensi dan panjang gelombang berbanding lurus",
+            "v = fλ, sehingga jika v tetap, f meningkat maka λ berkurang",
+            "Frekuensi tidak berhubungan dengan panjang gelombang",
+            "Cepat rambat menjadi nol"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Hubungan v = fλ menunjukkan bahwa ketika cepat rambat tetap, frekuensi dan panjang gelombang berbanding terbalik."
+    },
+    {
+        "topik": "Spektrum elektromagnetik",
+        "pertanyaan": "Urutan spektrum dari frekuensi rendah menuju tinggi adalah ...",
+        "jawaban": [
+            "Gamma, X, ultraviolet, tampak, inframerah, mikro, radio",
+            "Radio, mikro, inframerah, tampak, ultraviolet, X, gamma",
+            "Tampak, radio, gamma, mikro, ultraviolet, inframerah, X",
+            "Inframerah, radio, tampak, mikro, gamma, X, ultraviolet"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Radio memiliki frekuensi paling tinggi",
+            "Frekuensi meningkat dari radio menuju gamma",
+            "Gamma memiliki panjang gelombang terbesar",
+            "Urutan spektrum tidak berkaitan dengan frekuensi"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Urutannya adalah radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, dan sinar gamma."
+    },
+    {
+        "topik": "Gelombang radio",
+        "pertanyaan": "Gelombang radio dimanfaatkan untuk ...",
+        "jawaban": [
+            "Komunikasi dan penyiaran",
+            "Pemeriksaan tulang",
+            "Menghasilkan suara secara langsung",
+            "Melihat benda dengan mata"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Gelombang radio dapat membawa informasi melalui modulasi",
+            "Gelombang radio memiliki energi foton tertinggi",
+            "Gelombang radio merupakan gelombang bunyi",
+            "Mata manusia dapat melihat gelombang radio"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Gelombang radio digunakan untuk komunikasi, penyiaran, dan pengiriman informasi secara nirkabel."
+    },
+    {
+        "topik": "Gelombang mikro",
+        "pertanyaan": "Oven microwave memanfaatkan gelombang mikro untuk ...",
+        "jawaban": [
+            "Menghasilkan bunyi",
+            "Berinteraksi dengan bahan makanan dan menghasilkan pemanasan",
+            "Mengubah makanan menjadi cahaya",
+            "Menghilangkan massa makanan"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Gelombang mikro dapat berinteraksi dengan komponen makanan dan mengubah energi menjadi energi termal",
+            "Gelombang mikro merupakan gelombang mekanik",
+            "Semua gelombang menghasilkan pemanasan yang sama",
+            "Makanan hanya dapat dipanaskan oleh udara"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Gelombang mikro berinteraksi dengan bahan makanan. Energi elektromagnetik kemudian berubah menjadi energi termal melalui berbagai mekanisme interaksi."
+    },
+    {
+        "topik": "Inframerah",
+        "pertanyaan": "Radiasi inframerah berkaitan erat dengan ...",
+        "jawaban": [
+            "Radiasi termal",
+            "Gelombang bunyi",
+            "Arus listrik",
+            "Gelombang air"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Benda dapat memancarkan radiasi inframerah sesuai suhu dan karakteristik permukaannya",
+            "Inframerah merupakan gelombang mekanik",
+            "Inframerah tidak membawa energi",
+            "Inframerah hanya dihasilkan oleh benda beku"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Banyak benda memancarkan radiasi inframerah sebagai bagian dari radiasi termal. Kamera termal dapat mendeteksi radiasi tersebut."
+    },
+    {
+        "topik": "Cahaya tampak",
+        "pertanyaan": "Cahaya tampak adalah gelombang elektromagnetik yang ...",
+        "jawaban": [
+            "Dapat dideteksi mata manusia",
+            "Tidak membawa energi",
+            "Memiliki frekuensi paling rendah",
+            "Hanya merambat dalam air"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Retina manusia peka terhadap rentang frekuensi tertentu",
+            "Semua gelombang elektromagnetik dapat dilihat",
+            "Cahaya tampak tidak memiliki panjang gelombang",
+            "Cahaya tampak merupakan gelombang bunyi"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Mata manusia dapat mendeteksi rentang cahaya tampak. Gelombang elektromagnetik lainnya tidak dapat dilihat langsung oleh mata."
+    },
+    {
+        "topik": "Ultraviolet",
+        "pertanyaan": "Frekuensi ultraviolet dibandingkan cahaya tampak adalah ...",
+        "jawaban": [
+            "Lebih rendah",
+            "Lebih tinggi",
+            "Selalu sama",
+            "Nol"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Ultraviolet berada di bawah inframerah",
+            "Ultraviolet memiliki frekuensi lebih tinggi daripada cahaya tampak",
+            "Ultraviolet merupakan gelombang mekanik",
+            "Frekuensi tidak berkaitan dengan spektrum"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Ultraviolet memiliki frekuensi lebih tinggi dan panjang gelombang lebih pendek daripada cahaya tampak."
+    },
+
+    {
+        "topik": "Sinar-X",
+        "pertanyaan": "Sinar-X dalam bidang medis digunakan untuk ...",
+        "jawaban": [
+            "Pencitraan bagian dalam tubuh",
+            "Mendengar detak jantung",
+            "Mengukur kelembapan udara",
+            "Menghasilkan gelombang suara"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Sinar-X diserap jaringan tubuh dengan tingkat berbeda",
+            "Sinar-X adalah gelombang suara",
+            "Sinar-X hanya dipantulkan kulit",
+            "Sinar-X tidak berinteraksi dengan materi"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Sinar-X dapat menembus jaringan tubuh. Perbedaan penyerapan oleh jaringan dan tulang menghasilkan citra."
+    },
+
+    {
+        "topik": "Sinar gamma",
+        "pertanyaan": "Radiasi dengan frekuensi paling tinggi di antara pilihan berikut adalah ...",
+        "jawaban": [
+            "Radio",
+            "Inframerah",
+            "Cahaya tampak",
+            "Gamma"
+        ],
+        "benar": 3,
+        "alasan": [
+            "Radio memiliki energi foton paling besar",
+            "Gamma berada pada bagian frekuensi sangat tinggi",
+            "Cahaya tampak memiliki frekuensi tidak terbatas",
+            "Inframerah memiliki panjang gelombang terpendek"
+        ],
+        "alasan_benar": 1,
+        "penjelasan": "Sinar gamma memiliki frekuensi sangat tinggi dan energi foton tinggi. Namun batas antara sinar-X dan gamma dapat ditentukan berdasarkan asal radiasi juga."
+    },
+
+    {
+        "topik": "Energi foton",
+        "pertanyaan": "Energi foton berbanding lurus dengan ...",
+        "jawaban": [
+            "Panjang gelombang",
+            "Frekuensi",
+            "Massa medium",
+            "Periode kuadrat"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Energi foton mengikuti E = hf",
+            "Energi selalu berbanding terbalik dengan frekuensi",
+            "Energi tidak dipengaruhi frekuensi",
+            "Energi sama dengan massa medium"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Energi foton dihitung dengan E = hf. Semakin tinggi frekuensi, semakin besar energi foton."
+    },
+
+    {
+        "topik": "Pemantulan gelombang",
+        "pertanyaan": "Pada pemantulan cahaya berlaku ...",
+        "jawaban": [
+            "Sudut datang sama dengan sudut pantul",
+            "Sudut datang dua kali sudut pantul",
+            "Frekuensi menjadi nol",
+            "Energi selalu hilang seluruhnya"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Hukum pemantulan menyatakan sudut datang sama dengan sudut pantul",
+            "Pemantulan tidak mempunyai aturan",
+            "Gelombang selalu diserap seluruhnya",
+            "Arah rambat tidak dapat berubah"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Sudut datang dan sudut pantul diukur terhadap garis normal, bukan terhadap permukaan."
+    },
+
+    {
+        "topik": "Pembiasan gelombang",
+        "pertanyaan": "Ketika cahaya masuk ke medium berbeda, frekuensinya pada umumnya ...",
+        "jawaban": [
+            "Berubah",
+            "Tetap",
+            "Menjadi dua kali",
+            "Menjadi nol"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Frekuensi ditentukan oleh sumber dan tetap saat memasuki medium lain",
+            "Frekuensi selalu ditentukan kecepatan medium",
+            "Panjang gelombang tidak pernah berubah",
+            "Pembiasan menghentikan gelombang"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Frekuensi tetap. Cepat rambat dan panjang gelombang dapat berubah ketika cahaya memasuki medium berbeda."
+    },
+
+    {
+        "topik": "Polarisasi",
+        "pertanyaan": "Polarisasi menunjukkan bahwa cahaya bersifat ...",
+        "jawaban": [
+            "Longitudinal",
+            "Transversal",
+            "Mekanik",
+            "Tidak memiliki arah getar"
+        ],
+        "benar": 1,
+        "alasan": [
+            "Polarisasi berkaitan dengan pembatasan arah getar gelombang transversal",
+            "Gelombang longitudinal dapat dipolarisasi dengan cara yang sama",
+            "Cahaya memerlukan medium",
+            "Cahaya tidak memiliki medan listrik"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Polarisasi merupakan bukti bahwa cahaya bersifat transversal karena arah getarnya dapat dibatasi."
+    },
+
+    {
+        "topik": "Energi gelombang elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik membawa energi karena ...",
+        "jawaban": [
+            "Memiliki medan listrik dan medan magnet",
+            "Selalu membawa udara",
+            "Tidak memiliki frekuensi",
+            "Harus merambat dalam air"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Medan elektromagnetik dapat membawa dan mentransfer energi",
+            "Energi hanya dimiliki gelombang mekanik",
+            "Gelombang tidak berinteraksi dengan benda",
+            "Energi sama dengan massa udara"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Gelombang elektromagnetik membawa energi yang dapat ditransfer ke materi ketika terjadi interaksi."
+    },
+
+    {
+        "topik": "Kecepatan dalam medium",
+        "pertanyaan": "Jika indeks bias medium lebih besar daripada satu, kecepatan cahaya dalam medium dibandingkan di ruang hampa adalah ...",
+        "jawaban": [
+            "Lebih besar",
+            "Lebih kecil",
+            "Selalu sama",
+            "Nol"
+        ],
+        "benar": 1,
+        "alasan": [
+            "v = c/n, sehingga n lebih besar menghasilkan v lebih kecil",
+            "Medium selalu mempercepat cahaya",
+            "Indeks bias tidak berhubungan dengan kecepatan",
+            "Cahaya berhenti dalam medium"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Dalam medium dengan indeks bias n, kecepatan fase cahaya adalah v = c/n."
+    },
+
+    {
+        "topik": "Panjang gelombang",
+        "pertanyaan": "Jika frekuensi tetap dan cepat rambat berkurang, panjang gelombang akan ...",
+        "jawaban": [
+            "Bertambah",
+            "Berkurang",
+            "Tetap",
+            "Menjadi tak terhingga"
+        ],
+        "benar": 1,
+        "alasan": [
+            "λ = v/f, sehingga v berkurang dan f tetap menyebabkan λ berkurang",
+            "Panjang gelombang tidak dipengaruhi kecepatan",
+            "Frekuensi ikut menjadi nol",
+            "Medium menghilangkan gelombang"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Berdasarkan λ = v/f, panjang gelombang berkurang jika kecepatan berkurang sedangkan frekuensi tetap."
+    },
+
+    {
+        "topik": "Aplikasi gelombang elektromagnetik",
+        "pertanyaan": "Komunikasi satelit umumnya memanfaatkan gelombang ...",
+        "jawaban": [
+            "Mikro",
+            "Bunyi",
+            "Air",
+            "Gelombang tali"
+        ],
+        "benar": 0,
+        "alasan": [
+            "Gelombang mikro digunakan pada berbagai sistem komunikasi satelit",
+            "Bunyi dapat merambat melalui ruang hampa",
+            "Gelombang air dapat merambat di ruang angkasa",
+            "Gelombang tali digunakan untuk komunikasi satelit"
+        ],
+        "alasan_benar": 0,
+        "penjelasan": "Komunikasi satelit menggunakan frekuensi radio, termasuk pita gelombang mikro, untuk mengirim dan menerima sinyal."
+    }
+]
+
+# =========================================================
+# PEMBATASAN JUMLAH SOAL MENJADI 10
+# =========================================================
+
+SOAL = SOAL[:10]
+
+# =========================================================
+# 8. ANALISIS FOUR-TIER
+# =========================================================
+
+def analisis_jawaban(jawaban_siswa):
+
+    hasil = []
+
+    for nomor, jawaban in enumerate(jawaban_siswa):
+
+        soal = SOAL[nomor]
+
+        benar_jawaban = (
+            jawaban["jawaban"] == soal["jawaban"][soal["benar"]]
+        )
+
+        benar_alasan = (
+            jawaban["alasan"] == soal["alasan"][soal["alasan_benar"]]
+        )
+
+        yakin_jawaban = jawaban["yakin_jawaban"] == "Yakin"
+        yakin_alasan = jawaban["yakin_alasan"] == "Yakin"
+
+        if benar_jawaban and benar_alasan:
+
+            if yakin_jawaban and yakin_alasan:
+                kategori = "Paham Konsep"
+
+            else:
+                kategori = "Paham Konsep, Belum Yakin"
+
+        elif not benar_jawaban and not benar_alasan:
+
+            if yakin_jawaban and yakin_alasan:
+                kategori = "Indikasi Miskonsepsi"
+
+            else:
+                kategori = "Belum Memahami Konsep"
+
+        elif benar_jawaban and not benar_alasan:
+            kategori = "Jawaban Benar, Alasan Keliru"
+
+        else:
+            kategori = "Jawaban Salah, Alasan Benar"
+
+        hasil.append({
+
+            "nomor": nomor + 1,
+            "topik": soal["topik"],
+            "pertanyaan": soal["pertanyaan"],
+            "jawaban_siswa": jawaban["jawaban"],
+            "alasan_siswa": jawaban["alasan"],
+            "keyakinan_jawaban": jawaban["yakin_jawaban"],
+            "keyakinan_alasan": jawaban["yakin_alasan"],
+            "jawaban_benar": benar_jawaban,
+            "alasan_benar": benar_alasan,
+            "kategori": kategori,
+            "jawaban_seharusnya": soal["jawaban"][soal["benar"]],
+            "alasan_seharusnya": soal["alasan"][soal["alasan_benar"]],
+            "penjelasan": soal["penjelasan"]
+
+        })
+
+    return hasil
+
+# =========================================================
+# 9. PERHITUNGAN NILAI
+# =========================================================
+
+def hitung_nilai(hasil):
+
+    if not hasil:
+        return 0
+
+    skor_jawaban = sum(
+        item["jawaban_benar"] for item in hasil
+    )
+
+    skor_alasan = sum(
+        item["alasan_benar"] for item in hasil
+    )
+
+    total = len(hasil) * 2
+
+    nilai = (
+        (skor_jawaban + skor_alasan)
+        / total
+    ) * 100
+
+    return round(nilai, 2)
+
+def hitung_persentase(hasil):
+
+    if not hasil:
+        return 0
+
+    jumlah = sum(
+        item["kategori"] == "Indikasi Miskonsepsi"
+        for item in hasil
+    )
+
+    return round(jumlah / len(hasil) * 100, 2)
