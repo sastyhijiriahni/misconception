@@ -16,12 +16,12 @@ from datetime import datetime
 # =========================================================
 
 st.set_page_config(
-    page_title="MISCONCEPT AI",
+    page_title="MISCONCEPTION",
     page_icon="🧠",
     layout="wide"
 )
 
-DATABASE = "misconcept_ai.db"
+DATABASE = "misconception"
 
 C = 299792458          # Kecepatan cahaya (m/s)
 H = 6.62607015e-34    # Konstanta Planck (J.s)
