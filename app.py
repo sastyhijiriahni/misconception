@@ -8,6 +8,126 @@ import math
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
+import streamlit.components.v1 as components
+
+# =========================================================
+# KOMPONEN KEAMANAN MISKONSEPTION
+# =========================================================
+
+_folder_safety = (
+    Path(__file__).parent
+    / "safety_component"
+    / "build"
+)
+
+safety_monitor = components.declare_component(
+    "miskonseption_safety",
+    path=str(_folder_safety)
+)
+
+
+def jalankan_pemantauan_ujian(session_id, user_id):
+
+    status_sesi = ambil_status_ujian(session_id)
+
+    if not status_sesi:
+        st.error("Sesi ujian tidak ditemukan.")
+        return False
+
+    jumlah_pelanggaran = int(
+        status_sesi.get("violation_count", 0)
+    )
+
+    status = status_sesi.get("status")
+
+    if status != "BERLANGSUNG":
+        return False
+
+    if "pelanggaran_terakhir_diproses" not in st.session_state:
+        st.session_state.pelanggaran_terakhir_diproses = {}
+
+    event = safety_monitor(
+        active=True,
+        violation_count=jumlah_pelanggaran,
+        last_processed_event_id=(
+            st.session_state.pelanggaran_terakhir_diproses.get(
+                session_id
+            )
+        ),
+        key=f"monitor_{session_id}"
+    )
+
+    # Tidak ada kejadian baru
+    if not isinstance(event, dict):
+        return True
+
+    event_id = event.get("event_id")
+
+    if not event_id:
+        return True
+
+    # Catat kejadian ke database
+    catat_pelanggaran(
+        session_id=session_id,
+        user_id=user_id,
+        violation_type=event.get(
+            "violation_type",
+            "AKTIVITAS_TIDAK_WAJAR"
+        ),
+        description=event.get(
+            "description",
+            "Aktivitas meninggalkan halaman ujian."
+        ),
+        event_id=event_id
+    )
+
+    # Tandai agar kejadian yang sama tidak diproses berulang
+    st.session_state.pelanggaran_terakhir_diproses[
+        session_id
+    ] = event_id
+
+    # Periksa kembali status setelah pencatatan
+    status_baru = ambil_status_ujian(session_id)
+
+    if status_baru:
+        jumlah_baru = int(
+            status_baru.get("violation_count", 0)
+        )
+
+        if jumlah_baru >= BATAS_PELANGGARAN:
+            st.session_state.ujian_dihentikan = True
+
+    st.rerun()
+
+    return True
+# =========================================================
+# PEMANTAUAN AKTIF SELAMA UJIAN
+# =========================================================
+
+if not jalankan_pemantauan_ujian(
+    sesi_id,
+    pengguna["id"]
+):
+    st.error(
+        "Ujian tidak dapat dilanjutkan karena sesi "
+        "sudah tidak aktif."
+    )
+    return
+
+status_sesi = ambil_status_ujian(sesi_id)
+
+if not status_sesi:
+    st.error("Sesi ujian tidak ditemukan.")
+    return
+
+if status_sesi.get("status") == "DIHENTIKAN":
+    st.error("Ujian dihentikan karena mencapai tiga pelanggaran.")
+    st.warning(
+        "Guru perlu memeriksa catatan pelanggaran sebelum "
+        "siswa dapat mengikuti ujian kembali."
+    )
+    return
 
 from datetime import datetime
 
