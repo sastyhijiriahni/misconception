@@ -1,67 +1,86 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import sqlite3
 import hashlib
 import secrets
 import json
 import io
 import math
+import time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 from datetime import datetime
 
+
 # =========================================================
-# 1. KONFIGURASI
+# 1. KONFIGURASI APLIKASI
 # =========================================================
 
 st.set_page_config(
-    page_title="MISCONCEPTION",
+    page_title="MISKONSEPTION",
     page_icon="🧠",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
+NAMA_APLIKASI = "MISKONSEPTION"
+
+# Tetap menggunakan database lama
 DATABASE = "misconception"
 
-C = 299792458          # Kecepatan cahaya (m/s)
-H = 6.62607015e-34    # Konstanta Planck (J.s)
+# Jumlah soal ujian
+JUMLAH_SOAL = 10
+
+# Batas maksimal pelanggaran
+BATAS_PELANGGARAN = 3
+
+# Pilihan keamanan ujian
+MODE_KEAMANAN = [
+    "Website Monitoring",
+    "Safe Exam Browser (SEB)",
+    "Gabungan"
+]
 
 
 # =========================================================
-# 2. DATABASE
+# 2. FUNGSI KONEKSI DATABASE
 # =========================================================
 
 def koneksi_database():
-    conn = sqlite3.connect(DATABASE)
-    conn.execute("PRAGMA foreign_keys = ON")
+    """
+    Membuka koneksi ke database SQLite.
+    Database tetap menggunakan nama misconception.
+    """
+    conn = sqlite3.connect(DATABASE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
     return conn
 
 
-def inisialisasi_database():
+# =========================================================
+# 3. MEMBUAT TABEL PELANGGARAN UJIAN
+# =========================================================
+
+def buat_tabel_keamanan():
+    """
+    Membuat tabel untuk menyimpan pelanggaran selama ujian.
+    Tabel lama users dan results tidak dihapus.
+    """
 
     conn = koneksi_database()
     cursor = conn.cursor()
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
+        CREATE TABLE IF NOT EXISTS exam_violations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nama TEXT NOT NULL,
-            username TEXT UNIQUE NOT NULL,
-            salt TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            jenis_tes TEXT NOT NULL,
-            nilai REAL NOT NULL,
-            hasil_json TEXT NOT NULL,
-            tanggal TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            username TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            violation_type TEXT NOT NULL,
+            violation_count INTEGER NOT NULL,
+            violation_time TEXT NOT NULL,
+            exam_mode TEXT,
+            description TEXT
         )
     """)
 
@@ -70,76 +89,318 @@ def inisialisasi_database():
 
 
 # =========================================================
-# 3. PASSWORD
+# 4. FUNGSI MENCATAT PELANGGARAN
 # =========================================================
 
-def buat_hash_password(password, salt=None):
+def catat_pelanggaran(
+    username,
+    session_id,
+    violation_type,
+    violation_count,
+    exam_mode,
+    description=""
+):
+    """
+    Menyimpan pelanggaran ujian ke database.
+    """
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    cursor.execute("""
+        INSERT INTO exam_violations (
+            username,
+            session_id,
+            violation_type,
+            violation_count,
+            violation_time,
+            exam_mode,
+            description
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        username,
+        session_id,
+        violation_type,
+        violation_count,
+        waktu,
+        exam_mode,
+        description
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# 5. MENGAMBIL DATA PELANGGARAN
+# =========================================================
+
+def ambil_semua_pelanggaran():
+    """
+    Mengambil seluruh catatan pelanggaran untuk dashboard guru.
+    """
+
+    conn = koneksi_database()
+
+    try:
+        data = pd.read_sql_query("""
+            SELECT
+                username AS 'Nama Siswa',
+                session_id AS 'ID Sesi Ujian',
+                violation_type AS 'Jenis Pelanggaran',
+                violation_count AS 'Jumlah Pelanggaran',
+                violation_time AS 'Waktu',
+                exam_mode AS 'Mode Keamanan',
+                description AS 'Keterangan'
+            FROM exam_violations
+            ORDER BY id DESC
+        """, conn)
+
+    except Exception:
+        data = pd.DataFrame()
+
+    conn.close()
+    return data
+
+
+# =========================================================
+# 6. MENGAMBIL PELANGGARAN BERDASARKAN SISWA
+# =========================================================
+
+def ambil_pelanggaran_siswa(username):
+    """
+    Mengambil catatan pelanggaran milik satu siswa.
+    """
+
+    conn = koneksi_database()
+
+    try:
+        data = pd.read_sql_query("""
+            SELECT
+                violation_type,
+                violation_count,
+                violation_time,
+                exam_mode,
+                description
+            FROM exam_violations
+            WHERE username = ?
+            ORDER BY id DESC
+        """, conn, params=(username,))
+
+    except Exception:
+        data = pd.DataFrame()
+
+    conn.close()
+    return data
+
+
+# =========================================================
+# 7. MEMBUAT ID SESI UJIAN
+# =========================================================
+
+def buat_id_sesi():
+    """
+    Membuat ID unik untuk setiap sesi ujian.
+    """
+
+    return secrets.token_hex(8)
+
+
+# =========================================================
+# 8. FUNGSI HASH PASSWORD
+# =========================================================
+
+def hash_password(password, salt=None):
+    """
+    Mengubah password menjadi hash agar tidak disimpan
+    dalam bentuk teks biasa.
+    """
 
     if salt is None:
         salt = secrets.token_hex(16)
 
-    hasil = hashlib.pbkdf2_hmac(
+    hasil_hash = hashlib.pbkdf2_hmac(
         "sha256",
         password.encode("utf-8"),
         salt.encode("utf-8"),
         100000
     ).hex()
 
-    return salt, hasil
+    return salt + ":" + hasil_hash
 
 
-def verifikasi_password(password, salt, hash_asli):
+def verifikasi_password(password, password_tersimpan):
+    """
+    Memeriksa password yang dimasukkan pengguna.
+    """
 
-    _, hash_baru = buat_hash_password(password, salt)
+    try:
+        salt, hash_lama = password_tersimpan.split(":")
 
-    return secrets.compare_digest(
-        hash_baru,
-        hash_asli
-    )
+        hash_baru = hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            salt.encode("utf-8"),
+            100000
+        ).hex()
+
+        return secrets.compare_digest(hash_baru, hash_lama)
+
+    except Exception:
+        return False
 
 
 # =========================================================
-# 4. REGISTRASI
+# 9. INISIALISASI SESSION STATE
 # =========================================================
 
-def daftar_siswa(nama, username, password):
+def inisialisasi_session():
+
+    nilai_awal = {
+        "login": False,
+        "username": None,
+        "role": None,
+
+        "halaman": "Beranda",
+
+        "ujian_aktif": False,
+        "ujian_dihentikan": False,
+        "ujian_selesai": False,
+
+        "mode_ujian": "Website Monitoring",
+
+        "pelanggaran_sesi": 0,
+        "id_sesi_ujian": None,
+
+        "nomor_soal": 0,
+        "jawaban_siswa": {},
+
+        "hasil_ujian": None,
+        "waktu_mulai_ujian": None
+    }
+
+    for key, value in nilai_awal.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+# =========================================================
+# 10. MENJALANKAN INISIALISASI
+# =========================================================
+
+buat_tabel_keamanan()
+inisialisasi_session()
+
+# =========================================================
+# 11. MEMBUAT TABEL PENGGUNA
+# =========================================================
+
+def buat_tabel_pengguna():
 
     conn = koneksi_database()
     cursor = conn.cursor()
 
-    salt, password_hash = buat_hash_password(password)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'Siswa',
+            created_at TEXT
+        )
+    """)
 
-    try:
-
-        cursor.execute("""
-            INSERT INTO users
-            (nama, username, salt, password_hash, role)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            nama,
-            username,
-            salt,
-            password_hash,
-            "Siswa"
-        ))
-
-        conn.commit()
-
-        berhasil = True
-        pesan = "Pendaftaran berhasil."
-
-    except sqlite3.IntegrityError:
-
-        berhasil = False
-        pesan = "Username telah digunakan."
-
+    conn.commit()
     conn.close()
-
-    return berhasil, pesan
 
 
 # =========================================================
-# 5. LOGIN
+# 12. MEMBUAT TABEL HASIL TES
+# =========================================================
+
+def buat_tabel_hasil():
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            tanggal TEXT NOT NULL,
+            skor REAL,
+            total_soal INTEGER,
+            jumlah_miskonsepsi INTEGER,
+            jumlah_paham REAL,
+            detail_jawaban TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# Membuat tabel pengguna dan hasil tes
+buat_tabel_pengguna()
+buat_tabel_hasil()
+
+
+# =========================================================
+# 13. FUNGSI REGISTRASI
+# =========================================================
+
+def registrasi_pengguna(username, password):
+
+    username = username.strip()
+
+    if not username or not password:
+        return False, "Username dan password harus diisi."
+
+    if len(username) < 3:
+        return False, "Username minimal terdiri dari 3 karakter."
+
+    if len(password) < 6:
+        return False, "Password minimal terdiri dari 6 karakter."
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    try:
+        password_hash = hash_password(password)
+
+        cursor.execute("""
+            INSERT INTO users (
+                username,
+                password,
+                role,
+                created_at
+            )
+            VALUES (?, ?, ?, ?)
+        """, (
+            username,
+            password_hash,
+            "Siswa",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+        conn.commit()
+        return True, "Registrasi berhasil. Silakan login."
+
+    except sqlite3.IntegrityError:
+        return False, "Username sudah digunakan."
+
+    except Exception as e:
+        return False, f"Registrasi gagal: {e}"
+
+    finally:
+        conn.close()
+
+
+# =========================================================
+# 14. FUNGSI LOGIN
 # =========================================================
 
 def login_pengguna(username, password):
@@ -148,1176 +409,143 @@ def login_pengguna(username, password):
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, nama, username, salt, password_hash, role
+        SELECT username, password, role
         FROM users
         WHERE username = ?
-    """, (username,))
+    """, (username.strip(),))
 
-    data = cursor.fetchone()
+    pengguna = cursor.fetchone()
     conn.close()
 
-    if data is None:
-        return None
-
-    if verifikasi_password(
-        password,
-        data[3],
-        data[4]
-    ):
-
-        return {
-            "id": data[0],
-            "nama": data[1],
-            "username": data[2],
-            "role": data[5]
-        }
-
-    return None
-
-
-# =========================================================
-# 6. MENYIMPAN HASIL
-# =========================================================
-
-def simpan_hasil(user_id, jenis_tes, nilai, hasil):
-
-    conn = koneksi_database()
-
-    conn.execute("""
-        INSERT INTO results
-        (user_id, jenis_tes, nilai, hasil_json, tanggal)
-        VALUES (?, ?, ?, ?, ?)
-    """, (
-        user_id,
-        jenis_tes,
-        nilai,
-        json.dumps(hasil, ensure_ascii=False),
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-def ambil_riwayat_siswa(user_id):
-
-    conn = koneksi_database()
-
-    df = pd.read_sql_query("""
-        SELECT id, jenis_tes, nilai, tanggal, hasil_json
-        FROM results
-        WHERE user_id = ?
-        ORDER BY id DESC
-    """, conn, params=(user_id,))
-
-    conn.close()
-
-    return df
-
-
-def ambil_semua_hasil():
-
-    conn = koneksi_database()
-
-    df = pd.read_sql_query("""
-        SELECT
-            users.id AS user_id,
-            users.nama,
-            users.username,
-            results.id AS test_id,
-            results.jenis_tes,
-            results.nilai,
-            results.tanggal,
-            results.hasil_json
-        FROM results
-        JOIN users ON users.id = results.user_id
-        ORDER BY results.id DESC
-    """, conn)
-
-    conn.close()
-
-    return df
-
-
-def ambil_semua_siswa():
-
-    conn = koneksi_database()
-
-    df = pd.read_sql_query("""
-        SELECT id, nama, username
-        FROM users
-        WHERE role = 'Siswa'
-        ORDER BY nama
-    """, conn)
-
-    conn.close()
-
-    return df
-
-
-inisialisasi_database()
-
-# =========================================================
-# 7. BANK SOAL FOUR-TIER
-# =========================================================
-
-SOAL = [
-    {
-        "topik": "Konsep dasar gelombang elektromagnetik",
-        "pertanyaan": "Gelombang elektromagnetik dapat merambat tanpa medium karena ...",
-        "jawaban": [
-            "Memerlukan partikel udara",
-            "Medan listrik dan medan magnet yang berubah saling berkaitan",
-            "Merupakan gelombang bunyi",
-            "Tidak membawa energi"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Semua gelombang memerlukan udara",
-            "Medan listrik dan medan magnet yang berubah saling berkaitan",
-            "Gelombang elektromagnetik adalah gelombang mekanik",
-            "Gelombang elektromagnetik tidak membawa energi"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Gelombang elektromagnetik dapat merambat di ruang hampa. Gelombang ini tersusun dari medan listrik dan medan magnet yang berubah serta saling berkaitan."
-    },
-
-    {
-        "topik": "Sifat gelombang elektromagnetik",
-        "pertanyaan": "Gelombang elektromagnetik bersifat transversal karena ...",
-        "jawaban": [
-            "Getarnya sejajar arah rambat",
-            "Medan listrik dan medan magnet tegak lurus arah rambat",
-            "Tidak mempunyai arah rambat",
-            "Hanya merambat dalam zat padat"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Semua gelombang memiliki getaran sejajar arah rambat",
-            "Medan listrik dan medan magnet tegak lurus terhadap arah rambat",
-            "Gelombang elektromagnetik tidak memiliki arah",
-            "Gelombang elektromagnetik adalah gelombang longitudinal"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Gelombang elektromagnetik merupakan gelombang transversal. Medan listrik, medan magnet, dan arah rambat saling tegak lurus."
-    },
-
-    {
-        "topik": "Kecepatan gelombang elektromagnetik",
-        "pertanyaan": "Cepat rambat cahaya di ruang hampa mendekati ...",
-        "jawaban": [
-            "340 m/s",
-            "3 × 10⁶ m/s",
-            "3 × 10⁸ m/s",
-            "3 × 10¹⁰ m/s"
-        ],
-        "benar": 2,
-        "alasan": [
-            "Sama dengan kecepatan bunyi",
-            "Merupakan nilai pendekatan cepat rambat cahaya di ruang hampa",
-            "Semua gelombang memiliki kecepatan bunyi",
-            "Cahaya tidak mempunyai kecepatan"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Cepat rambat cahaya di ruang hampa adalah 299.792.458 m/s, atau sekitar 3 × 10⁸ m/s."
-    },
-
-    {
-        "topik": "Frekuensi dan panjang gelombang",
-        "pertanyaan": "Jika cepat rambat tetap dan frekuensi meningkat, panjang gelombang akan ...",
-        "jawaban": [
-            "Bertambah",
-            "Berkurang",
-            "Tetap",
-            "Menjadi nol"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Frekuensi dan panjang gelombang berbanding lurus",
-            "v = fλ, sehingga jika v tetap, f meningkat maka λ berkurang",
-            "Frekuensi tidak berhubungan dengan panjang gelombang",
-            "Cepat rambat menjadi nol"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Hubungan v = fλ menunjukkan bahwa ketika cepat rambat tetap, frekuensi dan panjang gelombang berbanding terbalik."
-    },
-
-    {
-        "topik": "Spektrum elektromagnetik",
-        "pertanyaan": "Urutan spektrum dari frekuensi rendah menuju tinggi adalah ...",
-        "jawaban": [
-            "Gamma, X, ultraviolet, tampak, inframerah, mikro, radio",
-            "Radio, mikro, inframerah, tampak, ultraviolet, X, gamma",
-            "Tampak, radio, gamma, mikro, ultraviolet, inframerah, X",
-            "Inframerah, radio, tampak, mikro, gamma, X, ultraviolet"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Radio memiliki frekuensi paling tinggi",
-            "Frekuensi meningkat dari radio menuju gamma",
-            "Gamma memiliki panjang gelombang terbesar",
-            "Urutan spektrum tidak berkaitan dengan frekuensi"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Urutannya adalah radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, dan sinar gamma."
-    },
-
-    {
-        "topik": "Gelombang radio",
-        "pertanyaan": "Gelombang radio dimanfaatkan untuk ...",
-        "jawaban": [
-            "Komunikasi dan penyiaran",
-            "Pemeriksaan tulang",
-            "Menghasilkan suara secara langsung",
-            "Melihat benda dengan mata"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Gelombang radio dapat membawa informasi melalui modulasi",
-            "Gelombang radio memiliki energi foton tertinggi",
-            "Gelombang radio merupakan gelombang bunyi",
-            "Mata manusia dapat melihat gelombang radio"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Gelombang radio digunakan untuk komunikasi, penyiaran, dan pengiriman informasi secara nirkabel."
-    },
-
-    {
-        "topik": "Gelombang mikro",
-        "pertanyaan": "Oven microwave memanfaatkan gelombang mikro untuk ...",
-        "jawaban": [
-            "Menghasilkan bunyi",
-            "Berinteraksi dengan bahan makanan dan menghasilkan pemanasan",
-            "Mengubah makanan menjadi cahaya",
-            "Menghilangkan massa makanan"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Gelombang mikro dapat berinteraksi dengan komponen makanan dan mengubah energi menjadi energi termal",
-            "Gelombang mikro merupakan gelombang mekanik",
-            "Semua gelombang menghasilkan pemanasan yang sama",
-            "Makanan hanya dapat dipanaskan oleh udara"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Gelombang mikro berinteraksi dengan bahan makanan. Energi elektromagnetik kemudian berubah menjadi energi termal melalui berbagai mekanisme interaksi."
-    },
-
-    {
-        "topik": "Inframerah",
-        "pertanyaan": "Radiasi inframerah berkaitan erat dengan ...",
-        "jawaban": [
-            "Radiasi termal",
-            "Gelombang bunyi",
-            "Arus listrik",
-            "Gelombang air"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Benda dapat memancarkan radiasi inframerah sesuai suhu dan karakteristik permukaannya",
-            "Inframerah merupakan gelombang mekanik",
-            "Inframerah tidak membawa energi",
-            "Inframerah hanya dihasilkan oleh benda beku"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Banyak benda memancarkan radiasi inframerah sebagai bagian dari radiasi termal. Kamera termal dapat mendeteksi radiasi tersebut."
-    },
-
-    {
-        "topik": "Cahaya tampak",
-        "pertanyaan": "Cahaya tampak adalah gelombang elektromagnetik yang ...",
-        "jawaban": [
-            "Dapat dideteksi mata manusia",
-            "Tidak membawa energi",
-            "Memiliki frekuensi paling rendah",
-            "Hanya merambat dalam air"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Retina manusia peka terhadap rentang frekuensi tertentu",
-            "Semua gelombang elektromagnetik dapat dilihat",
-            "Cahaya tampak tidak memiliki panjang gelombang",
-            "Cahaya tampak merupakan gelombang bunyi"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Mata manusia dapat mendeteksi rentang cahaya tampak. Gelombang elektromagnetik lainnya tidak dapat dilihat langsung oleh mata."
-    },
-
-    {
-        "topik": "Ultraviolet",
-        "pertanyaan": "Frekuensi ultraviolet dibandingkan cahaya tampak adalah ...",
-        "jawaban": [
-            "Lebih rendah",
-            "Lebih tinggi",
-            "Selalu sama",
-            "Nol"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Ultraviolet berada di bawah inframerah",
-            "Ultraviolet memiliki frekuensi lebih tinggi daripada cahaya tampak",
-            "Ultraviolet merupakan gelombang mekanik",
-            "Frekuensi tidak berkaitan dengan spektrum"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Ultraviolet memiliki frekuensi lebih tinggi dan panjang gelombang lebih pendek daripada cahaya tampak."
-    },
-
-    {
-        "topik": "Sinar-X",
-        "pertanyaan": "Sinar-X dalam bidang medis digunakan untuk ...",
-        "jawaban": [
-            "Pencitraan bagian dalam tubuh",
-            "Mendengar detak jantung",
-            "Mengukur kelembapan udara",
-            "Menghasilkan gelombang suara"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Sinar-X diserap jaringan tubuh dengan tingkat berbeda",
-            "Sinar-X adalah gelombang suara",
-            "Sinar-X hanya dipantulkan kulit",
-            "Sinar-X tidak berinteraksi dengan materi"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Sinar-X dapat menembus jaringan tubuh. Perbedaan penyerapan oleh jaringan dan tulang menghasilkan citra."
-    },
-
-    {
-        "topik": "Sinar gamma",
-        "pertanyaan": "Radiasi dengan frekuensi paling tinggi di antara pilihan berikut adalah ...",
-        "jawaban": [
-            "Radio",
-            "Inframerah",
-            "Cahaya tampak",
-            "Gamma"
-        ],
-        "benar": 3,
-        "alasan": [
-            "Radio memiliki energi foton paling besar",
-            "Gamma berada pada bagian frekuensi sangat tinggi",
-            "Cahaya tampak memiliki frekuensi tidak terbatas",
-            "Inframerah memiliki panjang gelombang terpendek"
-        ],
-        "alasan_benar": 1,
-        "penjelasan": "Sinar gamma memiliki frekuensi sangat tinggi dan energi foton tinggi. Namun batas antara sinar-X dan gamma dapat ditentukan berdasarkan asal radiasi juga."
-    },
-
-    {
-        "topik": "Energi foton",
-        "pertanyaan": "Energi foton berbanding lurus dengan ...",
-        "jawaban": [
-            "Panjang gelombang",
-            "Frekuensi",
-            "Massa medium",
-            "Periode kuadrat"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Energi foton mengikuti E = hf",
-            "Energi selalu berbanding terbalik dengan frekuensi",
-            "Energi tidak dipengaruhi frekuensi",
-            "Energi sama dengan massa medium"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Energi foton dihitung dengan E = hf. Semakin tinggi frekuensi, semakin besar energi foton."
-    },
-
-    {
-        "topik": "Pemantulan gelombang",
-        "pertanyaan": "Pada pemantulan cahaya berlaku ...",
-        "jawaban": [
-            "Sudut datang sama dengan sudut pantul",
-            "Sudut datang dua kali sudut pantul",
-            "Frekuensi menjadi nol",
-            "Energi selalu hilang seluruhnya"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Hukum pemantulan menyatakan sudut datang sama dengan sudut pantul",
-            "Pemantulan tidak mempunyai aturan",
-            "Gelombang selalu diserap seluruhnya",
-            "Arah rambat tidak dapat berubah"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Sudut datang dan sudut pantul diukur terhadap garis normal, bukan terhadap permukaan."
-    },
-
-    {
-        "topik": "Pembiasan gelombang",
-        "pertanyaan": "Ketika cahaya masuk ke medium berbeda, frekuensinya pada umumnya ...",
-        "jawaban": [
-            "Berubah",
-            "Tetap",
-            "Menjadi dua kali",
-            "Menjadi nol"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Frekuensi ditentukan oleh sumber dan tetap saat memasuki medium lain",
-            "Frekuensi selalu ditentukan kecepatan medium",
-            "Panjang gelombang tidak pernah berubah",
-            "Pembiasan menghentikan gelombang"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Frekuensi tetap. Cepat rambat dan panjang gelombang dapat berubah ketika cahaya memasuki medium berbeda."
-    },
-
-    {
-        "topik": "Polarisasi",
-        "pertanyaan": "Polarisasi menunjukkan bahwa cahaya bersifat ...",
-        "jawaban": [
-            "Longitudinal",
-            "Transversal",
-            "Mekanik",
-            "Tidak memiliki arah getar"
-        ],
-        "benar": 1,
-        "alasan": [
-            "Polarisasi berkaitan dengan pembatasan arah getar gelombang transversal",
-            "Gelombang longitudinal dapat dipolarisasi dengan cara yang sama",
-            "Cahaya memerlukan medium",
-            "Cahaya tidak memiliki medan listrik"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Polarisasi merupakan bukti bahwa cahaya bersifat transversal karena arah getarnya dapat dibatasi."
-    },
-
-    {
-        "topik": "Energi gelombang elektromagnetik",
-        "pertanyaan": "Gelombang elektromagnetik membawa energi karena ...",
-        "jawaban": [
-            "Memiliki medan listrik dan medan magnet",
-            "Selalu membawa udara",
-            "Tidak memiliki frekuensi",
-            "Harus merambat dalam air"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Medan elektromagnetik dapat membawa dan mentransfer energi",
-            "Energi hanya dimiliki gelombang mekanik",
-            "Gelombang tidak berinteraksi dengan benda",
-            "Energi sama dengan massa udara"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Gelombang elektromagnetik membawa energi yang dapat ditransfer ke materi ketika terjadi interaksi."
-    },
-
-    {
-        "topik": "Kecepatan dalam medium",
-        "pertanyaan": "Jika indeks bias medium lebih besar daripada satu, kecepatan cahaya dalam medium dibandingkan di ruang hampa adalah ...",
-        "jawaban": [
-            "Lebih besar",
-            "Lebih kecil",
-            "Selalu sama",
-            "Nol"
-        ],
-        "benar": 1,
-        "alasan": [
-            "v = c/n, sehingga n lebih besar menghasilkan v lebih kecil",
-            "Medium selalu mempercepat cahaya",
-            "Indeks bias tidak berhubungan dengan kecepatan",
-            "Cahaya berhenti dalam medium"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Dalam medium dengan indeks bias n, kecepatan fase cahaya adalah v = c/n."
-    },
-
-    {
-        "topik": "Panjang gelombang",
-        "pertanyaan": "Jika frekuensi tetap dan cepat rambat berkurang, panjang gelombang akan ...",
-        "jawaban": [
-            "Bertambah",
-            "Berkurang",
-            "Tetap",
-            "Menjadi tak terhingga"
-        ],
-        "benar": 1,
-        "alasan": [
-            "λ = v/f, sehingga v berkurang dan f tetap menyebabkan λ berkurang",
-            "Panjang gelombang tidak dipengaruhi kecepatan",
-            "Frekuensi ikut menjadi nol",
-            "Medium menghilangkan gelombang"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Berdasarkan λ = v/f, panjang gelombang berkurang jika kecepatan berkurang sedangkan frekuensi tetap."
-    },
-
-    {
-        "topik": "Aplikasi gelombang elektromagnetik",
-        "pertanyaan": "Komunikasi satelit umumnya memanfaatkan gelombang ...",
-        "jawaban": [
-            "Mikro",
-            "Bunyi",
-            "Air",
-            "Gelombang tali"
-        ],
-        "benar": 0,
-        "alasan": [
-            "Gelombang mikro digunakan pada berbagai sistem komunikasi satelit",
-            "Bunyi dapat merambat melalui ruang hampa",
-            "Gelombang air dapat merambat di ruang angkasa",
-            "Gelombang tali digunakan untuk komunikasi satelit"
-        ],
-        "alasan_benar": 0,
-        "penjelasan": "Komunikasi satelit menggunakan frekuensi radio, termasuk pita gelombang mikro, untuk mengirim dan menerima sinyal."
-    }
-]
-
-# =========================================================
-# 8. ANALISIS FOUR-TIER
-# =========================================================
-
-def analisis_jawaban(jawaban_siswa):
-
-    hasil = []
-
-    for nomor, jawaban in enumerate(jawaban_siswa):
-
-        soal = SOAL[nomor]
-
-        benar_jawaban = (
-            jawaban["jawaban"] == soal["jawaban"][soal["benar"]]
-        )
-
-        benar_alasan = (
-            jawaban["alasan"] == soal["alasan"][soal["alasan_benar"]]
-        )
-
-        yakin_jawaban = jawaban["yakin_jawaban"] == "Yakin"
-        yakin_alasan = jawaban["yakin_alasan"] == "Yakin"
-
-        if benar_jawaban and benar_alasan:
-
-            if yakin_jawaban and yakin_alasan:
-                kategori = "Paham Konsep"
-
-            else:
-                kategori = "Paham Konsep, Belum Yakin"
-
-        elif not benar_jawaban and not benar_alasan:
-
-            if yakin_jawaban and yakin_alasan:
-                kategori = "Indikasi Miskonsepsi"
-
-            else:
-                kategori = "Belum Memahami Konsep"
-
-        elif benar_jawaban and not benar_alasan:
-
-            kategori = "Jawaban Benar, Alasan Keliru"
-
-        else:
-
-            kategori = "Jawaban Salah, Alasan Benar"
-
-        hasil.append({
-
-            "nomor": nomor + 1,
-
-            "topik": soal["topik"],
-
-            "pertanyaan": soal["pertanyaan"],
-
-            "jawaban_siswa": jawaban["jawaban"],
-
-            "alasan_siswa": jawaban["alasan"],
-
-            "keyakinan_jawaban": jawaban["yakin_jawaban"],
-
-            "keyakinan_alasan": jawaban["yakin_alasan"],
-
-            "jawaban_benar": benar_jawaban,
-
-            "alasan_benar": benar_alasan,
-
-            "kategori": kategori,
-
-            "jawaban_seharusnya":
-                soal["jawaban"][soal["benar"]],
-
-            "alasan_seharusnya":
-                soal["alasan"][soal["alasan_benar"]],
-
-            "penjelasan": soal["penjelasan"]
-
-        })
-
-    return hasil
-
-# =========================================================
-# 9. PERHITUNGAN NILAI
-# =========================================================
-
-def hitung_nilai(hasil):
-
-    if not hasil:
-        return 0
-
-    skor_jawaban = sum(
-        item["jawaban_benar"] for item in hasil
+    if pengguna is None:
+        return False, "Username tidak ditemukan."
+
+    if not verifikasi_password(password, pengguna["password"]):
+        return False, "Password yang dimasukkan salah."
+
+    st.session_state.login = True
+    st.session_state.username = pengguna["username"]
+    st.session_state.role = pengguna["role"]
+
+    st.session_state.halaman = (
+        "Dashboard Guru"
+        if pengguna["role"] == "Guru"
+        else "Dashboard Siswa"
     )
 
-    skor_alasan = sum(
-        item["alasan_benar"] for item in hasil
-    )
+    return True, "Login berhasil."
 
-    total = len(hasil) * 2
-
-    nilai = (
-        (skor_jawaban + skor_alasan)
-        / total
-    ) * 100
-
-    return round(nilai, 2)
-
-def hitung_persentase(hasil):
-
-    if not hasil:
-        return 0
-
-    jumlah = sum(
-        item["kategori"] == "Indikasi Miskonsepsi"
-        for item in hasil
-    )
-
-    return round(jumlah / len(hasil) * 100, 2)
 
 # =========================================================
-# 10. MATERI REMEDIAL
+# 15. FUNGSI LOGOUT
 # =========================================================
 
-MATERI = {
+def logout_pengguna():
 
-    "Konsep dasar gelombang elektromagnetik": {
-        "konsep": """
-Gelombang elektromagnetik merupakan gelombang yang tersusun
-dari medan listrik dan medan magnet yang berubah.
+    st.session_state.login = False
+    st.session_state.username = None
+    st.session_state.role = None
 
-Gelombang elektromagnetik dapat merambat tanpa medium material.
-Contohnya, cahaya Matahari dapat mencapai Bumi melalui ruang hampa.
-""",
+    st.session_state.ujian_aktif = False
+    st.session_state.ujian_dihentikan = False
+    st.session_state.ujian_selesai = False
 
-        "rumus": [
-            ("c = 1/√(μ₀ε₀)", "Hubungan konstanta elektromagnetik dengan cepat rambat cahaya")
-        ],
+    st.session_state.pelanggaran_sesi = 0
+    st.session_state.id_sesi_ujian = None
 
-        "contoh": "Cahaya Matahari merambat melalui ruang antara Matahari dan Bumi tanpa memerlukan udara."
-    },
+    st.session_state.nomor_soal = 0
+    st.session_state.jawaban_siswa = {}
 
-    "Sifat gelombang elektromagnetik": {
-        "konsep": """
-Gelombang elektromagnetik bersifat transversal.
-
-Medan listrik (E), medan magnet (B), dan arah rambat
-gelombang saling tegak lurus.
-""",
-
-        "rumus": [
-            ("E ⟂ B", "Medan listrik tegak lurus medan magnet"),
-            ("E ⟂ arah rambat", "Medan listrik tegak lurus arah rambat"),
-            ("B ⟂ arah rambat", "Medan magnet tegak lurus arah rambat")
-        ],
-
-        "contoh": "Polarisasi cahaya menggunakan filter untuk membatasi arah getar medan listrik."
-    },
-
-    "Kecepatan gelombang elektromagnetik": {
-        "konsep": """
-Di ruang hampa, gelombang elektromagnetik merambat
-dengan kecepatan cahaya.
-""",
-
-        "rumus": [
-            ("c ≈ 3 × 10⁸ m/s", "Kecepatan cahaya di ruang hampa")
-        ],
-
-        "contoh": "Cahaya menempuh jarak sekitar 300.000 km dalam satu detik di ruang hampa."
-    },
-
-    "Frekuensi dan panjang gelombang": {
-        "konsep": """
-Frekuensi adalah jumlah gelombang yang melewati titik
-dalam satu detik.
-
-Panjang gelombang adalah jarak antara dua titik sefase
-yang berurutan.
-""",
-
-        "rumus": [
-            ("v = fλ", "Hubungan cepat rambat, frekuensi, dan panjang gelombang"),
-            ("λ = v/f", "Menghitung panjang gelombang"),
-            ("f = v/λ", "Menghitung frekuensi")
-        ],
-
-        "contoh": """
-Jika v = 3 × 10⁸ m/s dan f = 6 × 10⁸ Hz:
-
-λ = v/f
-λ = (3 × 10⁸)/(6 × 10⁸)
-λ = 0,5 m
-"""
-    },
-
-    "Spektrum elektromagnetik": {
-        "konsep": """
-Urutan frekuensi rendah ke tinggi:
-
-Radio → Mikro → Inframerah → Tampak →
-Ultraviolet → Sinar-X → Gamma.
-
-Semakin tinggi frekuensi, semakin pendek panjang gelombang
-dan semakin besar energi fotonnya.
-""",
-
-        "rumus": [
-            ("c = fλ", "Hubungan frekuensi dan panjang gelombang"),
-            ("E = hf", "Energi foton")
-        ],
-
-        "contoh": "Sinar gamma memiliki frekuensi lebih tinggi daripada cahaya tampak."
-    },
-
-    "Gelombang radio": {
-        "konsep": """
-Gelombang radio digunakan untuk komunikasi, penyiaran,
-dan transmisi informasi.
-""",
-
-        "rumus": [
-            ("c = fλ", "Hubungan cepat rambat, frekuensi, dan panjang gelombang")
-        ],
-
-        "contoh": "Siaran radio FM menggunakan gelombang elektromagnetik untuk membawa informasi suara."
-    },
-
-    "Gelombang mikro": {
-        "konsep": """
-Gelombang mikro digunakan pada radar, komunikasi satelit,
-dan oven microwave.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi foton"),
-            ("v = fλ", "Hubungan gelombang")
-        ],
-
-        "contoh": "Oven microwave memanfaatkan interaksi gelombang mikro dengan bahan makanan."
-    },
-
-    "Inframerah": {
-        "konsep": """
-Inframerah merupakan radiasi elektromagnetik yang
-berkaitan dengan radiasi termal.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi foton")
-        ],
-
-        "contoh": "Kamera termal mendeteksi radiasi inframerah dari objek."
-    },
-
-    "Cahaya tampak": {
-        "konsep": """
-Cahaya tampak merupakan rentang elektromagnetik
-yang dapat dideteksi oleh mata manusia.
-""",
-
-        "rumus": [
-            ("c = fλ", "Hubungan frekuensi dan panjang gelombang")
-        ],
-
-        "contoh": "Cahaya putih dapat diuraikan menjadi berbagai warna."
-    },
-
-    "Ultraviolet": {
-        "konsep": """
-Ultraviolet memiliki frekuensi lebih tinggi daripada
-cahaya tampak.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi foton berbanding lurus dengan frekuensi")
-        ],
-
-        "contoh": "Radiasi ultraviolet dari Matahari dapat menyebabkan perubahan pada kulit."
-    },
-
-    "Sinar-X": {
-        "konsep": """
-Sinar-X dapat menembus materi dan mengalami penyerapan
-berbeda oleh berbagai jaringan.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi foton")
-        ],
-
-        "contoh": "Sinar-X digunakan untuk menghasilkan citra tulang."
-    },
-
-    "Sinar gamma": {
-        "konsep": """
-Sinar gamma memiliki frekuensi sangat tinggi
-dan energi foton tinggi.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi foton")
-        ],
-
-        "contoh": "Sinar gamma dapat berasal dari proses nuklir dan digunakan dalam bidang tertentu."
-    },
-
-    "Energi foton": {
-        "konsep": """
-Energi foton berbanding lurus dengan frekuensinya.
-Semakin tinggi frekuensi, semakin besar energi foton.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi berdasarkan frekuensi"),
-            ("E = hc/λ", "Energi berdasarkan panjang gelombang")
-        ],
-
-        "contoh": """
-f = 5 × 10¹⁴ Hz
-h = 6,626 × 10⁻³⁴ J.s
-
-E = hf
-E = 6,626 × 10⁻³⁴ × 5 × 10¹⁴
-E = 3,313 × 10⁻¹⁹ J
-"""
-    },
-
-    "Pemantulan gelombang": {
-        "konsep": """
-Pada pemantulan cahaya, sudut datang sama dengan
-sudut pantul.
-""",
-
-        "rumus": [
-            ("θᵢ = θᵣ", "Sudut datang sama dengan sudut pantul")
-        ],
-
-        "contoh": "Cahaya yang mengenai cermin datar dipantulkan dengan sudut yang sama terhadap garis normal."
-    },
-
-    "Pembiasan gelombang": {
-        "konsep": """
-Ketika cahaya memasuki medium berbeda,
-frekuensinya tetap.
-
-Cepat rambat dan panjang gelombangnya dapat berubah.
-""",
-
-        "rumus": [
-            ("n₁ sin θ₁ = n₂ sin θ₂", "Hukum Snellius"),
-            ("v = c/n", "Kecepatan cahaya dalam medium")
-        ],
-
-        "contoh": "Pensil dalam air tampak bengkok karena cahaya mengalami pembiasan."
-    },
-
-    "Polarisasi": {
-        "konsep": """
-Polarisasi adalah pembatasan arah getar gelombang transversal.
-""",
-
-        "rumus": [
-            ("I = I₀ cos²θ", "Hukum Malus untuk cahaya terpolarisasi")
-        ],
-
-        "contoh": "Kacamata polarisasi mengurangi cahaya pantulan tertentu."
-    },
-
-    "Energi gelombang elektromagnetik": {
-        "konsep": """
-Gelombang elektromagnetik membawa energi yang dapat
-ditransfer kepada benda ketika terjadi interaksi.
-""",
-
-        "rumus": [
-            ("E = hf", "Energi foton"),
-            ("P = E/t", "Daya merupakan energi per waktu")
-        ],
-
-        "contoh": "Panel surya mengubah energi radiasi elektromagnetik menjadi energi listrik."
-    },
-
-    "Kecepatan dalam medium": {
-        "konsep": """
-Indeks bias menunjukkan hubungan antara kecepatan
-cahaya di ruang hampa dan dalam medium.
-""",
-
-        "rumus": [
-            ("n = c/v", "Indeks bias"),
-            ("v = c/n", "Kecepatan dalam medium")
-        ],
-
-        "contoh": "Cahaya merambat lebih lambat dalam kaca daripada di ruang hampa."
-    },
-
-    "Panjang gelombang": {
-        "konsep": """
-Panjang gelombang dipengaruhi oleh cepat rambat
-dan frekuensi.
-""",
-
-        "rumus": [
-            ("λ = v/f", "Panjang gelombang"),
-            ("λ = c/f", "Panjang gelombang di ruang hampa")
-        ],
-
-        "contoh": "Jika frekuensi tetap dan cahaya memasuki medium dengan kecepatan lebih rendah, panjang gelombangnya berkurang."
-    },
-
-    "Aplikasi gelombang elektromagnetik": {
-        "konsep": """
-Gelombang elektromagnetik digunakan dalam komunikasi,
-kesehatan, penginderaan, dan teknologi.
-""",
-
-        "rumus": [
-            ("c = fλ", "Hubungan frekuensi dan panjang gelombang"),
-            ("E = hf", "Energi foton")
-        ],
-
-        "contoh": "Radio digunakan untuk penyiaran, microwave untuk komunikasi, dan sinar-X untuk pencitraan medis."
-    }
-}
-
-# =========================================================
-# 11. SESSION STATE
-# =========================================================
-
-DEFAULT_STATE = {
-    "pengguna": None,
-    "halaman": "Beranda",
-    "hasil_terakhir": [],
-    "nilai_terakhir": 0,
-    "jawaban_terakhir": []
-}
-
-for key, value in DEFAULT_STATE.items():
-
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-def ke_halaman(nama):
-
-    st.session_state.halaman = nama
-
-def keluar():
-
-    st.session_state.pengguna = None
     st.session_state.halaman = "Beranda"
-    st.session_state.hasil_terakhir = []
-    st.session_state.nilai_terakhir = 0
-    st.session_state.jawaban_terakhir = []
+
+    st.rerun()
+
 
 # =========================================================
-# 12. STYLE
-# =========================================================
-
-def style_aplikasi():
-
-    st.markdown("""
-    <style>
-
-    .hero {
-        background: linear-gradient(120deg,#17345e,#087f8c);
-        color: white;
-        padding: 28px;
-        border-radius: 16px;
-        text-align: center;
-        margin-bottom: 25px;
-    }
-
-    .hero h1 {
-        font-size: 38px;
-        font-weight: 800;
-    }
-
-    .small-note {
-        color: #777;
-        font-size: 14px;
-    }
-
-    </style>
-    """, unsafe_allow_html=True)
-
-def header():
-
-    st.markdown("""
-    <div class="hero">
-        <h1>🧠 MISCONCEPT AI</h1>
-        <p>Website Deteksi Miskonsepsi Fisika SMA</p>
-        <p>Materi Gelombang Elektromagnetik</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-style_aplikasi()
-
-# =========================================================
-# 13. BERANDA
-# =========================================================
-
-def halaman_beranda():
-
-    header()
-
-    st.title("Selamat Datang di MISCONCEPT AI")
-
-    st.write("""
-    MISCONCEPT AI merupakan media pembelajaran fisika
-    yang dirancang untuk membantu siswa memahami konsep
-    gelombang elektromagnetik dan mengidentifikasi
-    kemungkinan miskonsepsi melalui tes diagnostik Four-Tier.
-    """)
-
-    a, b, c = st.columns(3)
-
-    a.metric("Jumlah Soal", "20")
-    b.metric("Metode", "Four-Tier")
-    c.metric("Materi", "Gelombang Elektromagnetik")
-
-    st.subheader("Fitur Pembelajaran")
-
-    fitur = [
-        "Tes diagnostik Four-Tier",
-        "Analisis jawaban dan alasan",
-        "Penjelasan konsep otomatis",
-        "Peta miskonsepsi",
-        "Pembelajaran remedial",
-        "Laboratorium virtual",
-        "Riwayat tes",
-        "Laporan guru"
-    ]
-
-    col1, col2 = st.columns(2)
-
-    for i, fitur_item in enumerate(fitur):
-
-        if i % 2 == 0:
-            col1.write("✓ " + fitur_item)
-        else:
-            col2.write("✓ " + fitur_item)
-
-    st.divider()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        if st.button("Login", use_container_width=True):
-
-            ke_halaman("Login")
-            st.rerun()
-
-    with col2:
-
-        if st.button("Daftar Siswa", use_container_width=True):
-
-            ke_halaman("Daftar")
-            st.rerun()
-
-# =========================================================
-# 14. LOGIN
+# 16. HALAMAN LOGIN
 # =========================================================
 
 def halaman_login():
 
-    header()
+    st.title("🔐 Login MISKONSEPTION")
 
-    st.title("Login")
+    st.write(
+        "Silakan masuk menggunakan akun yang telah terdaftar."
+    )
 
-    with st.form("login_form"):
+    with st.form("form_login"):
 
-        username = st.text_input("Username")
+        username = st.text_input(
+            "Username",
+            placeholder="Masukkan username"
+        )
 
         password = st.text_input(
             "Password",
-            type="password"
+            type="password",
+            placeholder="Masukkan password"
         )
 
-        kirim = st.form_submit_button(
+        tombol_login = st.form_submit_button(
             "Login",
             use_container_width=True
         )
 
-    if kirim:
+    if tombol_login:
 
-        pengguna = login_pengguna(
-            username.strip(),
+        berhasil, pesan = login_pengguna(
+            username,
             password
         )
 
-        if pengguna:
-
-            st.session_state.pengguna = pengguna
-            st.session_state.halaman = "Dashboard"
-
-            st.success("Login berhasil.")
+        if berhasil:
+            st.success(pesan)
             st.rerun()
-
         else:
+            st.error(pesan)
 
-            st.error("Username atau password salah.")
-
-    if st.button("Kembali"):
-
-        ke_halaman("Beranda")
-        st.rerun()
 
 # =========================================================
-# 15. PENDAFTARAN
+# 17. HALAMAN REGISTRASI
 # =========================================================
 
-def halaman_daftar():
+def halaman_registrasi():
 
-    header()
+    st.title("📝 Registrasi Akun")
 
-    st.title("Pendaftaran Siswa")
+    st.write(
+        "Buat akun terlebih dahulu untuk menggunakan aplikasi."
+    )
 
-    with st.form("daftar_form"):
+    with st.form("form_registrasi"):
 
-        nama = st.text_input("Nama lengkap")
-
-        username = st.text_input("Username")
+        username = st.text_input(
+            "Buat Username"
+        )
 
         password = st.text_input(
-            "Password",
+            "Buat Password",
             type="password"
         )
 
         konfirmasi = st.text_input(
-            "Konfirmasi password",
+            "Konfirmasi Password",
             type="password"
         )
 
-        kirim = st.form_submit_button("Daftar")
+        tombol_daftar = st.form_submit_button(
+            "Daftar",
+            use_container_width=True
+        )
 
-    if kirim:
+    if tombol_daftar:
 
-        if not nama.strip() or not username.strip() or not password:
-
-            st.warning("Semua kolom harus diisi.")
-
-        elif len(password) < 8:
-
-            st.warning("Password minimal 8 karakter.")
-
-        elif password != konfirmasi:
-
-            st.error("Konfirmasi password tidak sesuai.")
+        if password != konfirmasi:
+            st.error("Konfirmasi password tidak sama.")
 
         else:
-
-            berhasil, pesan = daftar_siswa(
-                nama.strip(),
-                username.strip(),
+            berhasil, pesan = registrasi_pengguna(
+                username,
                 password
             )
 
@@ -1326,1628 +554,2732 @@ def halaman_daftar():
             else:
                 st.error(pesan)
 
-    if st.button("Kembali"):
-
-        ke_halaman("Beranda")
-        st.rerun()
 
 # =========================================================
-# 16. DASHBOARD SISWA
+# 18. FUNGSI MEMERIKSA HAK AKSES
 # =========================================================
 
-def halaman_dashboard():
+def hanya_guru():
 
-    header()
-
-    pengguna = st.session_state.pengguna
-
-    riwayat = ambil_riwayat_siswa(
-        pengguna["id"]
+    return (
+        st.session_state.login
+        and st.session_state.role == "Guru"
     )
 
-    st.title("Dashboard Siswa")
 
-    st.write(
-        f"Selamat datang, **{pengguna['nama']}**!"
+def hanya_siswa():
+
+    return (
+        st.session_state.login
+        and st.session_state.role == "Siswa"
     )
 
-    a, b, c = st.columns(3)
+# =========================================================
+# 19. BANK SOAL FOUR-TIER
+# =========================================================
 
-    a.metric("Jumlah Tes", len(riwayat))
+SOAL = [
 
-    b.metric("Jumlah Soal", 20)
+    {
+        "id": 1,
+        "materi": "Pengertian Gelombang Elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik adalah gelombang yang ....",
 
-    c.metric("Materi", "Gelombang EM")
+        "pilihan": [
+            "A. Memerlukan medium untuk merambat",
+            "B. Tidak memerlukan medium untuk merambat",
+            "C. Hanya dapat merambat dalam zat cair",
+            "D. Hanya dapat merambat dalam zat padat"
+        ],
 
-    st.subheader("Aktivitas Pembelajaran")
+        "kunci": "B",
 
-    if not riwayat.empty:
+        "alasan": [
+            "A. Karena gelombang elektromagnetik membutuhkan partikel medium",
+            "B. Karena gelombang elektromagnetik dapat merambat di ruang hampa",
+            "C. Karena gelombang elektromagnetik hanya merambat melalui udara",
+            "D. Karena gelombang elektromagnetik tidak membawa energi"
+        ],
 
-        nilai_terakhir = riwayat.iloc[0]["nilai"]
+        "kunci_alasan": "B",
 
-        st.metric(
-            "Nilai Tes Terakhir",
-            f"{nilai_terakhir:.2f}/100"
+        "pembahasan": (
+            "Gelombang elektromagnetik tidak membutuhkan medium "
+            "untuk merambat. Gelombang ini dapat bergerak di ruang "
+            "hampa, contohnya cahaya Matahari yang sampai ke Bumi."
+        )
+    },
+
+    {
+        "id": 2,
+        "materi": "Sifat Gelombang Elektromagnetik",
+        "pertanyaan": "Gelombang elektromagnetik memiliki medan listrik dan medan magnet yang ....",
+
+        "pilihan": [
+            "A. Sejajar satu sama lain",
+            "B. Saling tegak lurus dan tegak lurus terhadap arah rambat",
+            "C. Berlawanan arah dan tidak berubah",
+            "D. Selalu berada pada satu garis lurus"
+        ],
+
+        "kunci": "B",
+
+        "alasan": [
+            "A. Karena medan listrik dan magnet merambat secara terpisah",
+            "B. Karena gelombang elektromagnetik merupakan gelombang transversal",
+            "C. Karena gelombang elektromagnetik merupakan gelombang longitudinal",
+            "D. Karena medan listrik tidak berhubungan dengan medan magnet"
+        ],
+
+        "kunci_alasan": "B",
+
+        "pembahasan": (
+            "Gelombang elektromagnetik merupakan gelombang transversal. "
+            "Medan listrik dan medan magnet saling tegak lurus serta "
+            "keduanya tegak lurus terhadap arah rambat gelombang."
+        )
+    },
+
+    {
+        "id": 3,
+        "materi": "Kecepatan Gelombang Elektromagnetik",
+        "pertanyaan": "Kecepatan gelombang elektromagnetik di ruang hampa adalah ....",
+
+        "pilihan": [
+            "A. 3 × 10⁶ m/s",
+            "B. 3 × 10⁷ m/s",
+            "C. 3 × 10⁸ m/s",
+            "D. 3 × 10⁹ m/s"
+        ],
+
+        "kunci": "C",
+
+        "alasan": [
+            "A. Karena kecepatan cahaya di ruang hampa sekitar 300.000 km/s",
+            "B. Karena semua gelombang bergerak dengan kecepatan yang sama di udara",
+            "C. Karena gelombang elektromagnetik tidak memiliki kecepatan tetap",
+            "D. Karena kecepatan gelombang elektromagnetik bergantung pada massanya"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Kecepatan gelombang elektromagnetik di ruang hampa "
+            "adalah sekitar 3 × 10⁸ m/s. Nilai ini merupakan "
+            "kecepatan cahaya di ruang hampa."
+        )
+    },
+
+    {
+        "id": 4,
+        "materi": "Hubungan Frekuensi dan Panjang Gelombang",
+        "pertanyaan": "Jika frekuensi gelombang elektromagnetik semakin besar, maka panjang gelombangnya akan ....",
+
+        "pilihan": [
+            "A. Semakin besar",
+            "B. Semakin kecil",
+            "C. Tetap sama",
+            "D. Menjadi nol"
+        ],
+
+        "kunci": "B",
+
+        "alasan": [
+            "A. Karena frekuensi dan panjang gelombang berbanding lurus",
+            "B. Karena frekuensi dan panjang gelombang berbanding terbalik pada kecepatan rambat tetap",
+            "C. Karena frekuensi tidak berhubungan dengan panjang gelombang",
+            "D. Karena panjang gelombang selalu bertambah ketika frekuensi bertambah"
+        ],
+
+        "kunci_alasan": "B",
+
+        "pembahasan": (
+            "Hubungan frekuensi dan panjang gelombang dinyatakan "
+            "dengan rumus c = λf. Pada kecepatan rambat tetap, "
+            "frekuensi yang semakin besar menyebabkan panjang "
+            "gelombang semakin kecil."
+        )
+    },
+
+    {
+        "id": 5,
+        "materi": "Spektrum Elektromagnetik",
+        "pertanyaan": "Urutan gelombang elektromagnetik dari frekuensi paling rendah ke paling tinggi adalah ....",
+
+        "pilihan": [
+            "A. Radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, gamma",
+            "B. Gamma, sinar-X, ultraviolet, cahaya tampak, inframerah, mikro, radio",
+            "C. Radio, inframerah, mikro, ultraviolet, cahaya tampak, gamma, sinar-X",
+            "D. Cahaya tampak, radio, mikro, gamma, ultraviolet, inframerah, sinar-X"
+        ],
+
+        "kunci": "A",
+
+        "alasan": [
+            "A. Karena gelombang radio memiliki frekuensi paling rendah dan gamma paling tinggi",
+            "B. Karena sinar gamma memiliki panjang gelombang paling besar",
+            "C. Karena semua jenis gelombang memiliki frekuensi yang sama",
+            "D. Karena gelombang radio memiliki energi paling tinggi"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Urutan spektrum elektromagnetik dari frekuensi terendah "
+            "ke tertinggi adalah radio, mikro, inframerah, cahaya "
+            "tampak, ultraviolet, sinar-X, dan sinar gamma."
+        )
+    },
+
+    {
+        "id": 6,
+        "materi": "Energi Gelombang Elektromagnetik",
+        "pertanyaan": "Energi foton gelombang elektromagnetik akan semakin besar jika ....",
+
+        "pilihan": [
+            "A. Frekuensinya semakin kecil",
+            "B. Panjang gelombangnya semakin besar",
+            "C. Frekuensinya semakin besar",
+            "D. Kecepatannya menjadi nol"
+        ],
+
+        "kunci": "C",
+
+        "alasan": [
+            "A. Karena energi foton berbanding lurus dengan frekuensi",
+            "B. Karena energi foton tidak dipengaruhi frekuensi",
+            "C. Karena energi foton selalu tetap untuk semua gelombang",
+            "D. Karena energi foton berbanding lurus dengan panjang gelombang"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Energi foton dirumuskan dengan E = hf. Artinya, "
+            "semakin besar frekuensi gelombang elektromagnetik, "
+            "semakin besar pula energi fotonnya."
+        )
+    },
+
+    {
+        "id": 7,
+        "materi": "Gelombang Radio",
+        "pertanyaan": "Gelombang radio banyak dimanfaatkan dalam kehidupan sehari-hari untuk ....",
+
+        "pilihan": [
+            "A. Pemeriksaan tulang menggunakan sinar-X",
+            "B. Komunikasi dan penyiaran",
+            "C. Sterilisasi alat medis dengan sinar gamma",
+            "D. Menghasilkan panas pada makanan menggunakan inframerah"
+        ],
+
+        "kunci": "B",
+
+        "alasan": [
+            "A. Karena gelombang radio dapat membawa informasi melalui gelombang elektromagnetik",
+            "B. Karena gelombang radio hanya dapat digunakan untuk menghasilkan panas",
+            "C. Karena gelombang radio memiliki energi paling besar",
+            "D. Karena gelombang radio tidak dapat merambat di udara"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Gelombang radio digunakan untuk komunikasi, seperti "
+            "siaran radio, televisi, dan sistem komunikasi nirkabel."
+        )
+    },
+
+    {
+        "id": 8,
+        "materi": "Sinar Ultraviolet",
+        "pertanyaan": "Paparan sinar ultraviolet Matahari secara berlebihan dapat menyebabkan ....",
+
+        "pilihan": [
+            "A. Kerusakan kulit",
+            "B. Bertambahnya massa tubuh secara langsung",
+            "C. Hilangnya gaya gravitasi",
+            "D. Bertambahnya kecepatan suara"
+        ],
+
+        "kunci": "A",
+
+        "alasan": [
+            "A. Karena sinar ultraviolet memiliki energi yang dapat merusak sel kulit",
+            "B. Karena sinar ultraviolet tidak memiliki energi",
+            "C. Karena sinar ultraviolet hanya dapat merambat dalam air",
+            "D. Karena sinar ultraviolet merupakan gelombang mekanik"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Paparan ultraviolet yang berlebihan dapat merusak "
+            "sel kulit dan meningkatkan risiko gangguan kulit. "
+            "Karena itu, perlindungan dari sinar Matahari diperlukan."
+        )
+    },
+
+    {
+        "id": 9,
+        "materi": "Sinar-X",
+        "pertanyaan": "Sinar-X dimanfaatkan dalam bidang kesehatan terutama untuk ....",
+
+        "pilihan": [
+            "A. Mengukur suhu tubuh",
+            "B. Melihat struktur bagian dalam tubuh",
+            "C. Mengukur tekanan darah",
+            "D. Mengukur denyut jantung secara langsung"
+        ],
+
+        "kunci": "B",
+
+        "alasan": [
+            "A. Karena sinar-X dapat menembus jaringan lunak dan diserap berbeda oleh tulang",
+            "B. Karena sinar-X tidak dapat menembus tubuh manusia",
+            "C. Karena sinar-X hanya digunakan untuk menghasilkan cahaya",
+            "D. Karena sinar-X merupakan gelombang suara"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Sinar-X dapat menembus jaringan tubuh dengan tingkat "
+            "penyerapan berbeda. Tulang menyerap lebih banyak "
+            "sinar-X daripada jaringan lunak sehingga dapat "
+            "digunakan untuk menghasilkan citra bagian dalam tubuh."
+        )
+    },
+
+    {
+        "id": 10,
+        "materi": "Sinar Gamma",
+        "pertanyaan": "Sinar gamma memiliki energi yang sangat tinggi dibandingkan gelombang elektromagnetik lainnya karena ....",
+
+        "pilihan": [
+            "A. Frekuensinya sangat rendah",
+            "B. Panjang gelombangnya sangat besar",
+            "C. Frekuensinya sangat tinggi",
+            "D. Tidak memiliki energi"
+        ],
+
+        "kunci": "C",
+
+        "alasan": [
+            "A. Karena energi foton sebanding dengan frekuensinya",
+            "B. Karena energi foton berbanding terbalik dengan frekuensi",
+            "C. Karena sinar gamma tidak membawa energi",
+            "D. Karena semua gelombang elektromagnetik memiliki energi yang sama"
+        ],
+
+        "kunci_alasan": "A",
+
+        "pembahasan": (
+            "Sinar gamma memiliki frekuensi sangat tinggi dan "
+            "panjang gelombang sangat pendek. Berdasarkan "
+            "persamaan E = hf, frekuensi yang tinggi menghasilkan "
+            "energi foton yang tinggi."
+        )
+    }
+
+]
+
+
+# =========================================================
+# 20. MEMBATASI JUMLAH SOAL MENJADI 10
+# =========================================================
+
+SOAL = SOAL[:JUMLAH_SOAL]
+
+
+# =========================================================
+# 21. MATERI REMEDIAL
+# =========================================================
+
+MATERI = {
+
+    "Pengertian Gelombang Elektromagnetik": {
+        "judul": "Pengertian Gelombang Elektromagnetik",
+
+        "isi": """
+Gelombang elektromagnetik merupakan gelombang yang terbentuk
+dari perubahan medan listrik dan medan magnet.
+
+Gelombang ini dapat merambat tanpa memerlukan medium sehingga
+bisa bergerak melalui ruang hampa.
+
+Contohnya adalah cahaya Matahari yang dapat sampai ke Bumi
+meskipun melewati ruang angkasa.
+""",
+
+        "rumus": "c = λf"
+    },
+
+    "Sifat Gelombang Elektromagnetik": {
+        "judul": "Sifat Gelombang Elektromagnetik",
+
+        "isi": """
+Gelombang elektromagnetik termasuk gelombang transversal.
+
+Medan listrik dan medan magnet saling tegak lurus.
+Keduanya juga tegak lurus terhadap arah rambat gelombang.
+
+Gelombang elektromagnetik dapat mengalami pemantulan,
+pembiasan, interferensi, difraksi, dan polarisasi.
+""",
+
+        "rumus": "E ⟂ B ⟂ arah rambat"
+    },
+
+    "Kecepatan Gelombang Elektromagnetik": {
+        "judul": "Kecepatan Gelombang Elektromagnetik",
+
+        "isi": """
+Di ruang hampa, gelombang elektromagnetik merambat dengan
+kecepatan sekitar 3 × 10⁸ m/s.
+
+Kecepatan tersebut merupakan kecepatan cahaya di ruang hampa.
+Ketika merambat melalui medium, kecepatannya dapat berubah.
+""",
+
+        "rumus": "c = 3 × 10⁸ m/s"
+    },
+
+    "Hubungan Frekuensi dan Panjang Gelombang": {
+        "judul": "Hubungan Frekuensi dan Panjang Gelombang",
+
+        "isi": """
+Frekuensi menunjukkan banyaknya gelombang yang melewati
+suatu titik setiap detik.
+
+Panjang gelombang adalah jarak antara dua titik yang
+memiliki fase sama dan berurutan.
+
+Pada kecepatan rambat tetap, frekuensi dan panjang
+gelombang berbanding terbalik.
+""",
+
+        "rumus": "c = λf"
+    },
+
+    "Spektrum Elektromagnetik": {
+        "judul": "Spektrum Elektromagnetik",
+
+        "isi": """
+Spektrum elektromagnetik merupakan susunan berbagai
+jenis gelombang elektromagnetik berdasarkan frekuensi
+atau panjang gelombangnya.
+
+Urutan dari frekuensi rendah ke tinggi:
+
+1. Gelombang radio
+2. Gelombang mikro
+3. Inframerah
+4. Cahaya tampak
+5. Ultraviolet
+6. Sinar-X
+7. Sinar gamma
+""",
+
+        "rumus": "c = λf"
+    },
+
+    "Energi Gelombang Elektromagnetik": {
+        "judul": "Energi Gelombang Elektromagnetik",
+
+        "isi": """
+Energi gelombang elektromagnetik dibawa dalam bentuk
+paket energi yang disebut foton.
+
+Besarnya energi foton dipengaruhi oleh frekuensi.
+Semakin besar frekuensi, semakin besar energi foton.
+""",
+
+        "rumus": "E = hf"
+    },
+
+    "Gelombang Radio": {
+        "judul": "Gelombang Radio",
+
+        "isi": """
+Gelombang radio memiliki frekuensi relatif rendah
+dan panjang gelombang relatif besar.
+
+Gelombang ini digunakan dalam komunikasi,
+penyiaran radio, televisi, dan berbagai sistem komunikasi.
+"""
+    },
+
+    "Sinar Ultraviolet": {
+        "judul": "Sinar Ultraviolet",
+
+        "isi": """
+Sinar ultraviolet memiliki frekuensi lebih tinggi
+daripada cahaya tampak.
+
+Sinar ultraviolet berasal dari Matahari dan beberapa
+sumber buatan.
+
+Paparan berlebihan dapat menyebabkan kerusakan kulit
+dan mata sehingga perlu perlindungan.
+"""
+    },
+
+    "Sinar-X": {
+        "judul": "Sinar-X",
+
+        "isi": """
+Sinar-X merupakan gelombang elektromagnetik dengan
+frekuensi tinggi dan panjang gelombang pendek.
+
+Dalam bidang kesehatan, sinar-X digunakan untuk
+membantu melihat struktur bagian dalam tubuh,
+terutama tulang.
+"""
+    },
+
+    "Sinar Gamma": {
+        "judul": "Sinar Gamma",
+
+        "isi": """
+Sinar gamma memiliki frekuensi sangat tinggi
+dan panjang gelombang sangat pendek.
+
+Sinar gamma memiliki energi foton yang tinggi.
+Pemanfaatannya antara lain dalam radioterapi
+dan sterilisasi alat medis dengan pengendalian khusus.
+"""
+    }
+
+}
+
+
+# =========================================================
+# 22. KONSTANTA FISIKA
+# =========================================================
+
+C = 299792458
+H = 6.62607015e-34
+
+
+# =========================================================
+# 23. FUNGSI ANALISIS FOUR-TIER
+# =========================================================
+
+def analisis_jawaban(jawaban):
+
+    hasil = []
+
+    jumlah_paham = 0
+    jumlah_miskonsepsi = 0
+    jumlah_tidak_paham = 0
+    jumlah_menebak = 0
+
+    for nomor, soal in enumerate(SOAL):
+
+        data = jawaban.get(str(nomor), {})
+
+        jawaban_tingkat_1 = data.get("jawaban")
+        keyakinan_tingkat_2 = data.get("keyakinan_jawaban")
+
+        alasan_tingkat_3 = data.get("alasan")
+        keyakinan_tingkat_4 = data.get("keyakinan_alasan")
+
+        benar_jawaban = (
+            jawaban_tingkat_1 == soal["kunci"]
         )
 
-        if len(riwayat) > 1:
-
-            nilai_sebelumnya = riwayat.iloc[1]["nilai"]
-
-            perubahan = nilai_terakhir - nilai_sebelumnya
-
-            st.metric(
-                "Perubahan dari Tes Sebelumnya",
-                f"{perubahan:+.2f}"
-            )
-
-    else:
-
-        st.info(
-            "Kamu belum mengerjakan tes diagnostik. "
-            "Mulailah tes untuk mengetahui pemahaman konsep."
+        benar_alasan = (
+            alasan_tingkat_3 == soal["kunci_alasan"]
         )
+
+        yakin_jawaban = (
+            keyakinan_tingkat_2 == "Yakin"
+        )
+
+        yakin_alasan = (
+            keyakinan_tingkat_4 == "Yakin"
+        )
+
+        # Klasifikasi Four-Tier
+
+        if (
+            benar_jawaban
+            and benar_alasan
+            and yakin_jawaban
+            and yakin_alasan
+        ):
+
+            kategori = "Paham Konsep"
+            jumlah_paham += 1
+
+        elif (
+            not benar_jawaban
+            and not benar_alasan
+            and yakin_jawaban
+            and yakin_alasan
+        ):
+
+            kategori = "Miskonsepsi"
+            jumlah_miskonsepsi += 1
+
+        elif (
+            benar_jawaban
+            and benar_alasan
+            and not yakin_jawaban
+            and not yakin_alasan
+        ):
+
+            kategori = "Menebak"
+            jumlah_menebak += 1
+
+        else:
+
+            kategori = "Tidak Paham Konsep"
+            jumlah_tidak_paham += 1
+
+        hasil.append({
+
+            "Nomor": nomor + 1,
+
+            "Materi": soal["materi"],
+
+            "Jawaban Siswa": jawaban_tingkat_1,
+
+            "Jawaban Benar": soal["kunci"],
+
+            "Alasan Siswa": alasan_tingkat_3,
+
+            "Alasan Benar": soal["kunci_alasan"],
+
+            "Keyakinan Jawaban": keyakinan_tingkat_2,
+
+            "Keyakinan Alasan": keyakinan_tingkat_4,
+
+            "Kategori": kategori,
+
+            "Pembahasan": soal["pembahasan"]
+
+        })
+
+    total = len(SOAL)
+
+    skor = (
+        jumlah_paham / total * 100
+        if total > 0 else 0
+    )
+
+    return {
+
+        "detail": hasil,
+
+        "skor": skor,
+
+        "jumlah_paham": jumlah_paham,
+
+        "jumlah_miskonsepsi": jumlah_miskonsepsi,
+
+        "jumlah_tidak_paham": jumlah_tidak_paham,
+
+        "jumlah_menebak": jumlah_menebak,
+
+        "total_soal": total
+
+    }
+
+
+# =========================================================
+# 24. FUNGSI MENYIMPAN HASIL TES
+# =========================================================
+
+def simpan_hasil_tes(username, hasil):
+
+    conn = koneksi_database()
+    cursor = conn.cursor()
+
+    tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    detail_json = json.dumps(
+        hasil["detail"],
+        ensure_ascii=False
+    )
+
+    cursor.execute("""
+        INSERT INTO results (
+            username,
+            tanggal,
+            skor,
+            total_soal,
+            jumlah_miskonsepsi,
+            jumlah_paham,
+            detail_jawaban
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+
+        username,
+
+        tanggal,
+
+        hasil["skor"],
+
+        hasil["total_soal"],
+
+        hasil["jumlah_miskonsepsi"],
+
+        hasil["jumlah_paham"],
+
+        detail_json
+
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# 25. FUNGSI MENGAMBIL RIWAYAT HASIL TES SISWA
+# =========================================================
+
+def ambil_riwayat_siswa(username):
+
+    conn = koneksi_database()
+
+    try:
+
+        data = pd.read_sql_query("""
+            SELECT
+                tanggal AS 'Tanggal',
+                skor AS 'Skor',
+                total_soal AS 'Total Soal',
+                jumlah_miskonsepsi AS 'Jumlah Miskonsepsi',
+                jumlah_paham AS 'Jumlah Paham'
+            FROM results
+            WHERE username = ?
+            ORDER BY id DESC
+        """, conn, params=(username,))
+
+    except Exception:
+
+        data = pd.DataFrame()
+
+    conn.close()
+
+    return data
+
+
+# =========================================================
+# 26. FUNGSI MENGAMBIL SELURUH HASIL TES
+# =========================================================
+
+def ambil_semua_hasil():
+
+    conn = koneksi_database()
+
+    try:
+
+        data = pd.read_sql_query("""
+            SELECT
+                username AS 'Nama Siswa',
+                tanggal AS 'Tanggal',
+                skor AS 'Skor',
+                total_soal AS 'Total Soal',
+                jumlah_miskonsepsi AS 'Jumlah Miskonsepsi',
+                jumlah_paham AS 'Jumlah Paham',
+                detail_jawaban AS 'Detail Jawaban'
+            FROM results
+            ORDER BY id DESC
+        """, conn)
+
+    except Exception:
+
+        data = pd.DataFrame()
+
+    conn.close()
+
+    return data
+
+# =========================================================
+# 27. CSS DAN TAMPILAN APLIKASI
+# =========================================================
+
+def pasang_css():
+
+    st.markdown("""
+    <style>
+
+    .stApp {
+        background-color: #f5f7fb;
+    }
+
+    .main-title {
+        font-size: 36px;
+        font-weight: 800;
+        color: #17365d;
+        text-align: center;
+        margin-bottom: 5px;
+    }
+
+    .sub-title {
+        text-align: center;
+        color: #52657a;
+        font-size: 16px;
+        margin-bottom: 25px;
+    }
+
+    .info-card {
+        background-color: white;
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #e1e7ef;
+        margin-bottom: 15px;
+    }
+
+    .info-card h3 {
+        color: #17365d;
+        margin-top: 0;
+    }
+
+    .small-text {
+        color: #52657a;
+        font-size: 14px;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+
+pasang_css()
+
+
+# =========================================================
+# 28. HEADER APLIKASI
+# =========================================================
+
+def tampilkan_header():
+
+    st.markdown(
+        '<div class="main-title">🧠 MISKONSEPTION</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="sub-title">'
+        'Sistem Identifikasi dan Analisis Miskonsepsi Fisika'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
     st.divider()
 
-    if st.button(
-        "📝 Mulai Tes Four-Tier",
-        use_container_width=True
-    ):
 
-        ke_halaman("Tes Four-Tier")
-        st.rerun()
+# =========================================================
+# 29. HALAMAN BERANDA
+# =========================================================
 
-    st.subheader("Menu Pembelajaran")
+def halaman_beranda():
+
+    tampilkan_header()
+
+    st.subheader("Selamat Datang di MISKONSEPTION")
+
+    st.write("""
+    MISKONSEPTION merupakan aplikasi pembelajaran yang
+    dirancang untuk membantu mengidentifikasi pemahaman
+    dan miskonsepsi siswa pada materi gelombang elektromagnetik.
+
+    Aplikasi menggunakan metode Four-Tier Diagnostic Test
+    yang terdiri dari empat tingkat pertanyaan, yaitu jawaban,
+    keyakinan terhadap jawaban, alasan, dan keyakinan terhadap alasan.
+    """)
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-
-        if st.button("📊 Hasil Diagnosis", use_container_width=True):
-
-            ke_halaman("Hasil Diagnosis")
-            st.rerun()
+        st.metric(
+            "Jumlah Soal",
+            JUMLAH_SOAL
+        )
 
     with col2:
-
-        if st.button("🗺️ Peta Miskonsepsi", use_container_width=True):
-
-            ke_halaman("Peta Miskonsepsi")
-            st.rerun()
+        st.metric(
+            "Tingkat Diagnosis",
+            "4 Tier"
+        )
 
     with col3:
-
-        if st.button("📚 Remedial", use_container_width=True):
-
-            ke_halaman("Pembelajaran Remedial")
-            st.rerun()
-
-# =========================================================
-# 17. TES FOUR-TIER
-# =========================================================
-
-def halaman_tes():
-
-    header()
-
-    st.title("Tes Diagnostik Four-Tier")
-
-    st.info("""
-    Petunjuk:
-    1. Pilih jawaban yang menurutmu benar.
-    2. Tentukan tingkat keyakinan terhadap jawaban.
-    3. Pilih alasan yang paling sesuai.
-    4. Tentukan tingkat keyakinan terhadap alasan.
-    """)
-
-    jawaban_siswa = []
-
-    with st.form("tes_form"):
-
-        for i, soal in enumerate(SOAL):
-
-            st.divider()
-
-            st.markdown(f"### Soal {i + 1}")
-
-            st.caption(soal["topik"])
-
-            st.write(soal["pertanyaan"])
-
-            jawaban = st.radio(
-                "Tingkat 1 — Jawaban",
-                soal["jawaban"],
-                index=None,
-                key=f"jawaban_{i}"
-            )
-
-            yakin_jawaban = st.radio(
-                "Tingkat 2 — Keyakinan jawaban",
-                ["Yakin", "Tidak yakin"],
-                index=None,
-                horizontal=True,
-                key=f"yakin_jawaban_{i}"
-            )
-
-            alasan = st.radio(
-                "Tingkat 3 — Alasan",
-                soal["alasan"],
-                index=None,
-                key=f"alasan_{i}"
-            )
-
-            yakin_alasan = st.radio(
-                "Tingkat 4 — Keyakinan alasan",
-                ["Yakin", "Tidak yakin"],
-                index=None,
-                horizontal=True,
-                key=f"yakin_alasan_{i}"
-            )
-
-            jawaban_siswa.append({
-                "jawaban": jawaban,
-                "yakin_jawaban": yakin_jawaban,
-                "alasan": alasan,
-                "yakin_alasan": yakin_alasan
-            })
-
-        konfirmasi = st.checkbox(
-            "Saya sudah memeriksa seluruh jawaban."
-        )
-
-        kirim = st.form_submit_button(
-            "Kirim Jawaban dan Analisis",
-            use_container_width=True
-        )
-
-    if kirim:
-
-        lengkap = all(
-            item["jawaban"] is not None
-            and item["yakin_jawaban"] is not None
-            and item["alasan"] is not None
-            and item["yakin_alasan"] is not None
-            for item in jawaban_siswa
-        )
-
-        if not lengkap:
-
-            st.warning(
-                "Masih ada soal yang belum dijawab. "
-                "Lengkapi seluruh tingkat pada setiap soal."
-            )
-
-        elif not konfirmasi:
-
-            st.warning(
-                "Centang konfirmasi sebelum mengirim."
-            )
-
-        else:
-
-            hasil = analisis_jawaban(jawaban_siswa)
-
-            nilai = hitung_nilai(hasil)
-
-            st.session_state.hasil_terakhir = hasil
-
-            st.session_state.nilai_terakhir = nilai
-
-            st.session_state.jawaban_terakhir = jawaban_siswa
-
-            simpan_hasil(
-                st.session_state.pengguna["id"],
-                "Diagnostik Four-Tier",
-                nilai,
-                hasil
-            )
-
-            st.session_state.halaman = "Hasil Diagnosis"
-
-            st.success("Tes berhasil dianalisis.")
-
-            st.rerun()
-
-# =========================================================
-# 18. HASIL DIAGNOSIS
-# =========================================================
-
-def halaman_hasil():
-
-    header()
-
-    st.title("Hasil Diagnosis")
-
-    hasil = st.session_state.hasil_terakhir
-
-    if not hasil:
-
-        st.warning(
-            "Belum ada hasil tes. Silakan mengerjakan tes terlebih dahulu."
-        )
-
-        return
-
-    nilai = st.session_state.nilai_terakhir
-
-    jumlah_soal = len(hasil)
-
-    benar_jawaban = sum(
-        item["jawaban_benar"] for item in hasil
-    )
-
-    benar_alasan = sum(
-        item["alasan_benar"] for item in hasil
-    )
-
-    miskonsepsi = sum(
-        item["kategori"] == "Indikasi Miskonsepsi"
-        for item in hasil
-    )
-
-    a, b, c, d = st.columns(4)
-
-    a.metric("Nilai", f"{nilai:.2f}/100")
-
-    b.metric(
-        "Jawaban Benar",
-        f"{benar_jawaban}/{jumlah_soal}"
-    )
-
-    c.metric(
-        "Alasan Benar",
-        f"{benar_alasan}/{jumlah_soal}"
-    )
-
-    d.metric(
-        "Indikasi Miskonsepsi",
-        miskonsepsi
-    )
-
-    st.subheader("Ringkasan Kategori")
-
-    kategori = pd.Series(
-        [item["kategori"] for item in hasil]
-    ).value_counts()
-
-    tabel = kategori.rename_axis(
-        "Kategori"
-    ).reset_index(
-        name="Jumlah Soal"
-    )
-
-    st.dataframe(
-        tabel,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.subheader("Interpretasi Hasil")
-
-    if nilai >= 85:
-
-        st.success(
-            "Pemahaman konsep secara umum sudah baik. "
-            "Tetap perhatikan materi yang masih menunjukkan "
-            "ketidakkonsistenan antara jawaban dan alasan."
-        )
-
-    elif nilai >= 70:
-
-        st.info(
-            "Pemahaman konsep cukup baik, tetapi beberapa "
-            "konsep perlu diperdalam."
-        )
-
-    elif nilai >= 50:
-
-        st.warning(
-            "Sebagian konsep sudah dipahami, tetapi masih "
-            "terdapat beberapa bagian yang perlu dipelajari kembali."
-        )
-
-    else:
-
-        st.warning(
-            "Hasil menunjukkan bahwa beberapa konsep dasar "
-            "perlu dipelajari kembali melalui pembelajaran remedial."
-        )
-
-    st.caption("""
-    Nilai merupakan skor jawaban dan alasan. 
-    Kategori diagnosis memperhatikan pola jawaban serta keyakinan.
-    Indikasi miskonsepsi bukan diagnosis permanen terhadap siswa.
-    """)
-
-    st.divider()
-
-    st.subheader("Pembahasan Setiap Soal")
-
-    for item in hasil:
-
-        with st.expander(
-            f"Soal {item['nomor']} — {item['kategori']}"
-        ):
-
-            st.write("**Materi:**", item["topik"])
-
-            st.write("**Pertanyaan:**", item["pertanyaan"])
-
-            st.write(
-                "**Jawaban siswa:**",
-                item["jawaban_siswa"]
-            )
-
-            st.write(
-                "**Keyakinan jawaban:**",
-                item["keyakinan_jawaban"]
-            )
-
-            st.write(
-                "**Alasan siswa:**",
-                item["alasan_siswa"]
-            )
-
-            st.write(
-                "**Keyakinan alasan:**",
-                item["keyakinan_alasan"]
-            )
-
-            st.write(
-                "**Kategori diagnosis:**",
-                item["kategori"]
-            )
-
-            st.success(
-                "Jawaban yang benar: "
-                + item["jawaban_seharusnya"]
-            )
-
-            st.success(
-                "Alasan yang benar: "
-                + item["alasan_seharusnya"]
-            )
-
-            st.info(
-                item["penjelasan"]
-            )
-
-            if item["kategori"] != "Paham Konsep":
-
-                st.markdown("**Rekomendasi:**")
-
-                st.write(
-                    "Pelajari kembali materi "
-                    + item["topik"]
-                    + " melalui menu Pembelajaran Remedial."
-                )
-
-    st.divider()
-
-    if st.button(
-        "📚 Buka Pembelajaran Remedial",
-        use_container_width=True
-    ):
-
-        ke_halaman("Pembelajaran Remedial")
-        st.rerun()
-
-# =========================================================
-# 19. PETA MISKONSEPSI
-# =========================================================
-
-def halaman_peta():
-
-    header()
-
-    st.title("Peta Miskonsepsi")
-
-    hasil = st.session_state.hasil_terakhir
-
-    if not hasil:
-
-        st.warning(
-            "Selesaikan tes diagnostik terlebih dahulu."
-        )
-
-        return
-
-    df = pd.DataFrame(hasil)
-
-    st.subheader("Distribusi Kategori Diagnosis")
-
-    distribusi = df["kategori"].value_counts()
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    distribusi.plot(
-        kind="barh",
-        ax=ax
-    )
-
-    ax.set_xlabel("Jumlah Soal")
-    ax.set_ylabel("Kategori")
-    ax.set_title("Distribusi Kategori Diagnosis")
-
-    ax.grid(
-        axis="x",
-        linestyle="--",
-        alpha=0.4
-    )
-
-    ax.invert_yaxis()
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    plt.close(fig)
-
-    st.divider()
-
-    st.subheader("Distribusi Diagnosis per Materi")
-
-    tabel = pd.crosstab(
-        df["topik"],
-        df["kategori"]
-    )
-
-    st.dataframe(
-        tabel,
-        use_container_width=True
-    )
-
-    st.divider()
-
-    st.subheader("Materi dengan Indikasi Miskonsepsi")
-
-    data_miskonsepsi = df[
-        df["kategori"] == "Indikasi Miskonsepsi"
-    ]
-
-    if data_miskonsepsi.empty:
-
-        st.success(
-            "Tidak terdapat indikasi miskonsepsi "
-            "berdasarkan klasifikasi tes ini."
-        )
-
-    else:
-
-        jumlah = data_miskonsepsi[
-            "topik"
-        ].value_counts()
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-
-        jumlah.sort_values().plot(
-            kind="barh",
-            ax=ax
-        )
-
-        ax.set_xlabel("Jumlah Soal")
-        ax.set_ylabel("Materi")
-        ax.set_title("Materi dengan Indikasi Miskonsepsi")
-
-        ax.grid(
-            axis="x",
-            linestyle="--",
-            alpha=0.4
-        )
-
-        plt.tight_layout()
-
-        st.pyplot(fig)
-
-        plt.close(fig)
-
         st.metric(
-            "Jumlah Indikasi Miskonsepsi",
-            len(data_miskonsepsi)
+            "Materi",
+            "Gelombang EM"
         )
 
-        st.subheader("Materi Prioritas")
-
-        for topik in jumlah.index:
-
-            st.write(
-                "🔴 **" + topik + "**"
-            )
-
-            st.write(
-                "Jumlah soal dengan indikasi miskonsepsi:",
-                int(jumlah[topik])
-            )
-
-    st.caption("""
-    Peta miskonsepsi menunjukkan pola jawaban pada tes.
-    Hasil ini tidak dapat digunakan untuk menyimpulkan
-    miskonsepsi permanen tanpa pemeriksaan lanjutan.
-    """)
-
-# =========================================================
-# 20. PEMBELAJARAN REMEDIAL
-# =========================================================
-
-def halaman_remedial():
-
-    header()
-
-    st.title("Pembelajaran Remedial")
-
-    hasil = st.session_state.hasil_terakhir
-
-    if not hasil:
-
-        st.info(
-            "Kerjakan tes diagnostik terlebih dahulu "
-            "agar rekomendasi materi dapat disesuaikan."
-        )
-
-        topik = st.selectbox(
-            "Pilih materi yang ingin dipelajari",
-            list(MATERI.keys())
-        )
-
-    else:
-
-        perlu_dipelajari = list(dict.fromkeys(
-            item["topik"]
-            for item in hasil
-            if item["kategori"] != "Paham Konsep"
-        ))
-
-        if perlu_dipelajari:
-
-            st.info(
-                "Materi berikut direkomendasikan berdasarkan hasil tes."
-            )
-
-            topik = st.selectbox(
-                "Pilih materi remedial",
-                perlu_dipelajari
-            )
-
-        else:
-
-            st.success(
-                "Semua soal berada dalam kategori Paham Konsep."
-            )
-
-            topik = st.selectbox(
-                "Pilih materi untuk pengayaan",
-                list(MATERI.keys())
-            )
-
-    materi = MATERI[topik]
-
     st.divider()
 
-    st.subheader("1. Penjelasan Konsep")
-
-    st.write(materi["konsep"])
-
-    st.subheader("2. Rumus Penting")
-
-    for rumus, keterangan in materi["rumus"]:
-
-        st.markdown(f"### `{rumus}`")
-
-        st.write(keterangan)
-
-    st.subheader("3. Contoh Penerapan")
-
-    st.write(materi["contoh"])
-
-    st.divider()
-
-    st.subheader("4. Latihan Mandiri")
-
-    latihan = {
-
-        "Frekuensi dan panjang gelombang":
-            "Gelombang memiliki cepat rambat 3 × 10⁸ m/s dan frekuensi 6 × 10⁸ Hz. Berapakah panjang gelombangnya?",
-
-        "Energi foton":
-            "Foton memiliki frekuensi 5 × 10¹⁴ Hz. Hitung energi foton menggunakan h = 6,626 × 10⁻³⁴ J.s.",
-
-        "Kecepatan dalam medium":
-            "Jika indeks bias medium 1,5, hitung kecepatan cahaya di medium tersebut.",
-
-        "Panjang gelombang":
-            "Jika frekuensi cahaya 5 × 10¹⁴ Hz dan cepat rambatnya 2 × 10⁸ m/s, hitung panjang gelombangnya.",
-
-        "Pembiasan gelombang":
-            "Mengapa frekuensi cahaya tetap ketika memasuki medium berbeda?",
-
-        "Pemantulan gelombang":
-            "Jika sudut datang cahaya 35° terhadap garis normal, berapakah sudut pantulnya?",
-
-        "Polarisasi":
-            "Mengapa polarisasi dapat digunakan sebagai bukti bahwa cahaya merupakan gelombang transversal?"
-    }
-
-    pertanyaan_latihan = latihan.get(
-        topik,
-        "Jelaskan konsep " + topik + " dan berikan contoh penerapannya dalam kehidupan sehari-hari."
-    )
-
-    st.write(pertanyaan_latihan)
-
-    jawaban_latihan = st.text_area(
-        "Tuliskan jawabanmu",
-        key=f"latihan_{topik}"
-    )
-
-    if st.button("Periksa Jawaban Latihan"):
-
-        if not jawaban_latihan.strip():
-
-            st.warning("Tuliskan jawaban terlebih dahulu.")
-
-        else:
-
-            st.info("""
-            Bandingkan jawabanmu dengan penjelasan konsep
-            dan rumus yang tersedia di atas.
-
-            Pastikan kamu menuliskan:
-            - Konsep yang digunakan
-            - Rumus yang sesuai
-            - Substitusi nilai
-            - Satuan
-            - Kesimpulan
-            """)
-
-    st.divider()
-
-    if st.button(
-        "Kembali ke Hasil Diagnosis",
-        use_container_width=True
-    ):
-
-        ke_halaman("Hasil Diagnosis")
-        st.rerun()
-
-# =========================================================
-# 21. LABORATORIUM VIRTUAL
-# =========================================================
-
-def halaman_laboratorium():
-
-    header()
-
-    st.title("Laboratorium Virtual Gelombang Elektromagnetik")
-
-    st.write("""
-    Laboratorium ini digunakan untuk mengamati hubungan
-    frekuensi, panjang gelombang, cepat rambat, indeks bias,
-    dan energi foton secara matematis.
-    """)
-
-    st.divider()
-
-    st.subheader("A. Pengaturan Simulasi")
+    st.subheader("Fitur Aplikasi")
 
     col1, col2 = st.columns(2)
 
     with col1:
 
-        pangkat_f = st.slider(
-            "Pangkat frekuensi",
-            6,
-            20,
-            14
-        )
+        st.markdown("""
+        <div class="info-card">
+        <h3>📝 Tes Diagnostik</h3>
+        <p>Mengerjakan soal Four-Tier untuk mengetahui
+        tingkat pemahaman konsep siswa.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        frekuensi = 10.0 ** pangkat_f
-
-        st.write(
-            f"Frekuensi: **{frekuensi:.3e} Hz**"
-        )
+        st.markdown("""
+        <div class="info-card">
+        <h3>📊 Analisis Miskonsepsi</h3>
+        <p>Menampilkan hasil identifikasi pemahaman,
+        miskonsepsi, dan ketidakpahaman siswa.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col2:
 
-        indeks_bias = st.slider(
-            "Indeks bias medium",
-            min_value=1.0,
-            max_value=2.5,
-            value=1.5,
-            step=0.1
-        )
+        st.markdown("""
+        <div class="info-card">
+        <h3>📚 Materi Remedial</h3>
+        <p>Menyediakan materi pembelajaran sesuai
+        dengan konsep yang belum dipahami.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.caption("""
-    Frekuensi ditampilkan dalam bentuk 10ⁿ Hz.
-    Indeks bias 1,0 digunakan sebagai pendekatan ruang hampa.
-    """)
-
-    # Perhitungan
-
-    lambda_vakum = C / frekuensi
-
-    kecepatan_medium = C / indeks_bias
-
-    lambda_medium = kecepatan_medium / frekuensi
-
-    periode = 1 / frekuensi
-
-    energi = H * frekuensi
-
-    energi_ev = energi / 1.602176634e-19
-
-    # =====================================================
-    # METRIK
-    # =====================================================
-
-    st.subheader("B. Hasil Perhitungan")
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Panjang Gelombang Vakum",
-        f"{lambda_vakum:.3e} m"
-    )
-
-    col2.metric(
-        "Kecepatan dalam Medium",
-        f"{kecepatan_medium:.3e} m/s"
-    )
-
-    col3.metric(
-        "Panjang Gelombang Medium",
-        f"{lambda_medium:.3e} m"
-    )
-
-    col4, col5, col6 = st.columns(3)
-
-    col4.metric(
-        "Periode",
-        f"{periode:.3e} s"
-    )
-
-    col5.metric(
-        "Energi Foton",
-        f"{energi:.3e} J"
-    )
-
-    col6.metric(
-        "Energi Foton",
-        f"{energi_ev:.3e} eV"
-    )
-
-    # =====================================================
-    # RUMUS
-    # =====================================================
-
-    st.subheader("C. Rumus yang Digunakan")
-
-    st.latex(r"c = f\lambda_0")
-
-    st.latex(r"\lambda_0 = \frac{c}{f}")
-
-    st.latex(r"n = \frac{c}{v}")
-
-    st.latex(r"v = \frac{c}{n}")
-
-    st.latex(r"\lambda_m = \frac{v}{f}")
-
-    st.latex(r"E = hf")
-
-    st.latex(r"T = \frac{1}{f}")
-
-    st.write("**Keterangan:**")
-
-    st.write("""
-    - c = cepat rambat cahaya di ruang hampa (m/s)
-    - v = cepat rambat dalam medium (m/s)
-    - f = frekuensi (Hz)
-    - λ₀ = panjang gelombang di ruang hampa (m)
-    - λm = panjang gelombang dalam medium (m)
-    - n = indeks bias
-    - E = energi foton (J)
-    - h = konstanta Planck (J.s)
-    - T = periode (s)
-    """)
+        st.markdown("""
+        <div class="info-card">
+        <h3>🔐 Keamanan Ujian</h3>
+        <p>Menyediakan pemantauan aktivitas halaman
+        selama ujian berlangsung.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
 
-    # =====================================================
-    # CONTOH PERHITUNGAN
-    # =====================================================
-
-    st.subheader("D. Langkah Perhitungan")
-
-    st.write("**1. Panjang gelombang di ruang hampa**")
-
-    st.latex(
-        rf"\lambda_0 = \frac{{{C:.0f}}}{{{frekuensi:.3e}}}"
-    )
-
-    st.latex(
-        rf"\lambda_0 = {lambda_vakum:.3e}\ \mathrm{{m}}"
-    )
-
-    st.write("**2. Kecepatan dalam medium**")
-
-    st.latex(
-        rf"v = \frac{{{C:.0f}}}{{{indeks_bias}}}"
-    )
-
-    st.latex(
-        rf"v = {kecepatan_medium:.3e}\ \mathrm{{m/s}}"
-    )
-
-    st.write("**3. Panjang gelombang dalam medium**")
-
-    st.latex(
-        rf"\lambda_m = \frac{{{kecepatan_medium:.3e}}}{{{frekuensi:.3e}}}"
-    )
-
-    st.latex(
-        rf"\lambda_m = {lambda_medium:.3e}\ \mathrm{{m}}"
-    )
-
-    st.write("**4. Energi foton**")
-
-    st.latex(
-        rf"E = ({H:.3e})({frekuensi:.3e})"
-    )
-
-    st.latex(
-        rf"E = {energi:.3e}\ \mathrm{{J}}"
-    )
-
-    st.divider()
-
-    # =====================================================
-    # GRAFIK GELOMBANG
-    # =====================================================
-
-    st.subheader("E. Grafik Gelombang")
-
-    jumlah_gelombang = st.slider(
-        "Jumlah gelombang yang ditampilkan",
-        1,
-        5,
-        2
-    )
-
-    x = np.linspace(
-        0,
-        jumlah_gelombang * lambda_medium,
-        1000
-    )
-
-    fase = 2 * np.pi * x / lambda_medium
-
-    medan_listrik = np.sin(fase)
-
-    medan_magnet = np.sin(fase)
-
-    fig, ax = plt.subplots(figsize=(11, 5))
-
-    ax.plot(
-        x,
-        medan_listrik,
-        label="Medan listrik (relatif)"
-    )
-
-    ax.plot(
-        x,
-        medan_magnet,
-        linestyle="--",
-        label="Medan magnet (relatif)"
-    )
-
-    ax.set_title(
-        "Representasi Gelombang Elektromagnetik"
-    )
-
-    ax.set_xlabel(
-        "Posisi (m)"
-    )
-
-    ax.set_ylabel(
-        "Amplitudo relatif"
-    )
-
-    ax.grid(True)
-
-    ax.legend()
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    plt.close(fig)
-
-    st.info("""
-    Grafik ini merupakan representasi matematis dua medan
-    sebagai fungsi posisi. Medan listrik dan medan magnet
-    pada gelombang elektromagnetik ideal sefase, tetapi
-    arahnya saling tegak lurus.
-
-    Grafik ini bukan visualisasi vektor tiga dimensi.
-    Amplitudo yang digunakan bersifat relatif dan bukan
-    hasil pengukuran medan listrik atau medan magnet.
-    """)
-
-    st.divider()
-
-    # =====================================================
-    # SPEKTRUM ELEKTROMAGNETIK
-    # =====================================================
-
-    st.subheader("F. Posisi pada Spektrum Elektromagnetik")
-
-    fig, ax = plt.subplots(figsize=(12, 3.5))
-
-    batas = [
-        1e3,
-        3e8,
-        3e11,
-        4.3e14,
-        7.5e14,
-        3e16,
-        3e19,
-        1e22
-    ]
-
-    nama = [
-        "Radio",
-        "Mikro",
-        "Inframerah",
-        "Tampak",
-        "Ultraviolet",
-        "Sinar-X",
-        "Gamma"
-    ]
-
-    for i in range(len(nama)):
-
-        ax.axvspan(
-            batas[i],
-            batas[i + 1],
-            alpha=0.2
-        )
-
-        titik_tengah = math.sqrt(
-            batas[i] * batas[i + 1]
-        )
-
-        ax.text(
-            titik_tengah,
-            0.65,
-            nama[i],
-            ha="center",
-            va="center",
-            fontsize=9
-        )
-
-    ax.axvline(
-        frekuensi,
-        linestyle="--",
-        linewidth=2,
-        label=f"Frekuensi simulasi: {frekuensi:.2e} Hz"
-    )
-
-    ax.set_xscale("log")
-
-    ax.set_xlim(
-        batas[0],
-        batas[-1]
-    )
-
-    ax.set_ylim(
-        0,
-        1
-    )
-
-    ax.set_yticks([])
-
-    ax.set_xlabel("Frekuensi (Hz)")
-
-    ax.set_title(
-        "Spektrum Elektromagnetik"
-    )
-
-    ax.legend(
-        loc="upper center"
-    )
-
-    ax.grid(
-        axis="x",
-        which="both",
-        linestyle=":"
-    )
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    plt.close(fig)
-
-    st.caption("""
-    Batas rentang spektrum merupakan pendekatan.
-    Klasifikasi radio, mikro, inframerah, dan lainnya
-    dapat memiliki batas yang berbeda pada berbagai referensi.
-    """)
-
-    # =====================================================
-    # INTERPRETASI
-    # =====================================================
-
-    st.subheader("G. Interpretasi Hasil")
-
-    st.write(
-        f"""
-        Frekuensi yang dipilih adalah **{frekuensi:.3e} Hz**.
-
-        Panjang gelombang di ruang hampa adalah
-        **{lambda_vakum:.3e} m**.
-
-        Ketika gelombang memasuki medium dengan indeks bias
-        **{indeks_bias}**, cepat rambatnya menjadi
-        **{kecepatan_medium:.3e} m/s**.
-
-        Panjang gelombang dalam medium menjadi
-        **{lambda_medium:.3e} m**.
-
-        Frekuensi tetap karena ditentukan oleh sumber.
-        """
-
-    )
-
-    if indeks_bias > 1:
-
-        st.info("""
-        Ketika indeks bias meningkat, kecepatan cahaya
-        dalam medium berkurang. Jika frekuensi tetap,
-        panjang gelombang juga berkurang.
-        """)
+    if not st.session_state.login:
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button(
+                "Login",
+                use_container_width=True
+            ):
+                st.session_state.halaman = "Login"
+                st.rerun()
+
+        with col2:
+            if st.button(
+                "Registrasi",
+                use_container_width=True
+            ):
+                st.session_state.halaman = "Registrasi"
+                st.rerun()
 
     else:
 
-        st.success("""
-        Indeks bias 1,0 digunakan sebagai pendekatan
-        ruang hampa. Kecepatan gelombang sama dengan c.
-        """)
-
-# =========================================================
-# 22. RIWAYAT TES
-# =========================================================
-
-def halaman_riwayat():
-
-    header()
-
-    st.title("Riwayat Tes")
-
-    pengguna = st.session_state.pengguna
-
-    df = ambil_riwayat_siswa(
-        pengguna["id"]
-    )
-
-    if df.empty:
-
-        st.info("Belum ada riwayat tes.")
-
-        return
-
-    st.subheader("Daftar Riwayat")
-
-    tampil = df.drop(
-        columns=["hasil_json", "id"]
-    )
-
-    st.dataframe(
-        tampil,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    pilihan = st.selectbox(
-        "Pilih tes",
-        options=list(range(len(df))),
-
-        format_func=lambda i: (
-            f"{df.iloc[i]['tanggal']} | "
-            f"{df.iloc[i]['nilai']:.2f} | "
-            f"{df.iloc[i]['jenis_tes']}"
+        st.success(
+            f"Anda sudah login sebagai "
+            f"{st.session_state.username}."
         )
+
+
+# =========================================================
+# 30. SIDEBAR NAVIGASI
+# =========================================================
+
+def halaman_sidebar():
+
+    with st.sidebar:
+
+        st.title("🧠 MISKONSEPTION")
+
+        st.caption(
+            "Sistem Analisis Miskonsepsi Fisika"
+        )
+
+        st.divider()
+
+        if st.session_state.login:
+
+            st.write(
+                f"Pengguna: **{st.session_state.username}**"
+            )
+
+            st.write(
+                f"Peran: **{st.session_state.role}**"
+            )
+
+            st.divider()
+
+            if st.session_state.role == "Siswa":
+
+                daftar_menu = [
+                    "Dashboard Siswa",
+                    "Tes Diagnostik",
+                    "Hasil Diagnosis",
+                    "Peta Miskonsepsi",
+                    "Materi Remedial",
+                    "Laboratorium Virtual",
+                    "Riwayat Tes"
+                ]
+
+            else:
+
+                daftar_menu = [
+                    "Dashboard Guru"
+                ]
+
+            for menu in daftar_menu:
+
+                if st.button(
+                    menu,
+                    use_container_width=True
+                ):
+
+                    if st.session_state.ujian_aktif:
+                        st.warning(
+                            "Selesaikan ujian sebelum berpindah halaman."
+                        )
+                    else:
+                        st.session_state.halaman = menu
+                        st.rerun()
+
+            st.divider()
+
+            if st.button(
+                "Logout",
+                use_container_width=True
+            ):
+
+                if st.session_state.ujian_aktif:
+                    st.warning(
+                        "Selesaikan ujian terlebih dahulu."
+                    )
+                else:
+                    logout_pengguna()
+
+        else:
+
+            if st.button(
+                "Beranda",
+                use_container_width=True
+            ):
+
+                st.session_state.halaman = "Beranda"
+                st.rerun()
+
+            if st.button(
+                "Login",
+                use_container_width=True
+            ):
+
+                st.session_state.halaman = "Login"
+                st.rerun()
+
+            if st.button(
+                "Registrasi",
+                use_container_width=True
+            ):
+
+                st.session_state.halaman = "Registrasi"
+                st.rerun()
+
+
+# =========================================================
+# 31. DASHBOARD SISWA
+# =========================================================
+
+def halaman_dashboard_siswa():
+
+    tampilkan_header()
+
+    st.title("📊 Dashboard Siswa")
+
+    st.write(
+        f"Selamat datang, {st.session_state.username}!"
     )
+
+    riwayat = ambil_riwayat_siswa(
+        st.session_state.username
+    )
+
+    if riwayat.empty:
+
+        st.info(
+            "Anda belum memiliki riwayat tes."
+        )
+
+        jumlah_tes = 0
+        rata_rata = 0
+        total_miskonsepsi = 0
+
+    else:
+
+        jumlah_tes = len(riwayat)
+
+        rata_rata = riwayat["Skor"].mean()
+
+        total_miskonsepsi = riwayat[
+            "Jumlah Miskonsepsi"
+        ].sum()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Jumlah Tes",
+            jumlah_tes
+        )
+
+    with col2:
+        st.metric(
+            "Rata-rata Skor",
+            f"{rata_rata:.1f}"
+        )
+
+    with col3:
+        st.metric(
+            "Total Miskonsepsi",
+            int(total_miskonsepsi)
+        )
+
+    st.divider()
+
+    st.subheader("Mulai Pembelajaran")
+
+    st.write("""
+    Kerjakan tes diagnostik untuk mengetahui
+    tingkat pemahaman Anda terhadap materi
+    gelombang elektromagnetik.
+    """)
 
     if st.button(
-        "Buka Hasil Tes",
+        "Mulai Tes Diagnostik",
         use_container_width=True
     ):
 
-        hasil_lama = json.loads(
-            df.iloc[pilihan]["hasil_json"]
-        )
-
-        st.session_state.hasil_terakhir = hasil_lama
-
-        st.session_state.nilai_terakhir = float(
-            df.iloc[pilihan]["nilai"]
-        )
-
-        st.session_state.halaman = "Hasil Diagnosis"
-
+        st.session_state.halaman = "Tes Diagnostik"
         st.rerun()
 
     st.divider()
 
-    st.subheader("Grafik Perkembangan Nilai")
+    st.subheader("Riwayat Tes Terakhir")
 
-    grafik = df.copy()
+    if not riwayat.empty:
 
-    grafik["tanggal"] = pd.to_datetime(
-        grafik["tanggal"]
+        st.dataframe(
+            riwayat.head(5),
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+# =========================================================
+# 32. MEMULAI SESI UJIAN
+# =========================================================
+
+def mulai_ujian(mode):
+
+    st.session_state.mode_ujian = mode
+
+    st.session_state.ujian_aktif = True
+    st.session_state.ujian_dihentikan = False
+    st.session_state.ujian_selesai = False
+
+    st.session_state.pelanggaran_sesi = 0
+
+    st.session_state.id_sesi_ujian = buat_id_sesi()
+
+    st.session_state.nomor_soal = 0
+
+    st.session_state.jawaban_siswa = {}
+
+    st.session_state.hasil_ujian = None
+
+    st.session_state.waktu_mulai_ujian = datetime.now()
+
+    st.session_state.halaman = "Tes Diagnostik"
+
+    st.rerun()
+
+
+# =========================================================
+# 33. MENCATAT PELANGGARAN UJIAN
+# =========================================================
+
+def proses_pelanggaran(jenis, keterangan=""):
+
+    if not st.session_state.ujian_aktif:
+        return
+
+    if st.session_state.ujian_dihentikan:
+        return
+
+    st.session_state.pelanggaran_sesi += 1
+
+    jumlah = st.session_state.pelanggaran_sesi
+
+    catat_pelanggaran(
+        username=st.session_state.username,
+        session_id=st.session_state.id_sesi_ujian,
+        violation_type=jenis,
+        violation_count=jumlah,
+        exam_mode=st.session_state.mode_ujian,
+        description=keterangan
     )
 
-    grafik = grafik.sort_values(
-        "tanggal"
+    if jumlah == 1:
+
+        st.warning(
+            "Peringatan 1: Aktivitas di luar halaman ujian terdeteksi. "
+            "Silakan kembali fokus pada ujian."
+        )
+
+    elif jumlah == 2:
+
+        st.error(
+            "Peringatan 2: Aktivitas mencurigakan kembali terdeteksi. "
+            "Pelanggaran berikutnya akan menghentikan ujian."
+        )
+
+    elif jumlah >= BATAS_PELANGGARAN:
+
+        st.session_state.ujian_aktif = False
+        st.session_state.ujian_dihentikan = True
+
+        st.session_state.halaman = "Tes Diagnostik"
+
+
+# =========================================================
+# 34. KOMPONEN PEMANTAUAN WEBSITE
+# =========================================================
+
+def tampilkan_monitor_website():
+
+    if not st.session_state.ujian_aktif:
+        return
+
+    if st.session_state.mode_ujian not in [
+        "Website Monitoring",
+        "Gabungan"
+    ]:
+        return
+
+    components.html(
+        """
+        <div id="monitor-status"
+             style="font-family:Arial;
+                    padding:8px;
+                    border-radius:8px;
+                    background:#e8f5e9;
+                    color:#1b5e20;">
+            🟢 Pemantauan halaman aktif
+        </div>
+
+        <script>
+
+        const statusBox =
+            document.getElementById("monitor-status");
+
+        let pelanggaranTerkirim = false;
+
+        function kirimPelanggaran(jenis) {
+
+            if (pelanggaranTerkirim) {
+                return;
+            }
+
+            pelanggaranTerkirim = true;
+
+            statusBox.innerHTML =
+                "⚠️ Aktivitas di luar halaman ujian terdeteksi.";
+
+            statusBox.style.background = "#ffebee";
+            statusBox.style.color = "#b71c1c";
+
+            // Pesan peringatan visual.
+            // Komunikasi ke server Streamlit belum tersedia
+            // hanya dengan components.html biasa.
+
+            console.log("Pelanggaran:", jenis);
+        }
+
+        document.addEventListener(
+            "visibilitychange",
+            function() {
+
+                if (document.hidden) {
+                    kirimPelanggaran("Berpindah tab atau halaman");
+                }
+
+            }
+        );
+
+        window.addEventListener(
+            "blur",
+            function() {
+
+                kirimPelanggaran("Halaman kehilangan fokus");
+
+            }
+        );
+
+        document.addEventListener(
+            "fullscreenchange",
+            function() {
+
+                if (!document.fullscreenElement) {
+
+                    kirimPelanggaran(
+                        "Keluar dari mode layar penuh"
+                    );
+
+                }
+
+            }
+        );
+
+        </script>
+        """,
+        height=65
     )
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+
+# =========================================================
+# 35. FUNGSI PERINGATAN SUARA
+# =========================================================
+
+def tampilkan_peringatan_suara():
+
+    components.html(
+        """
+        <script>
+
+        try {
+
+            const audioContext =
+                new (window.AudioContext ||
+                     window.webkitAudioContext)();
+
+            const oscillator =
+                audioContext.createOscillator();
+
+            const gain =
+                audioContext.createGain();
+
+            oscillator.connect(gain);
+            gain.connect(audioContext.destination);
+
+            oscillator.frequency.value = 800;
+
+            gain.gain.value = 0.15;
+
+            oscillator.start();
+
+            oscillator.stop(
+                audioContext.currentTime + 0.3
+            );
+
+        } catch (error) {
+
+            console.log("Audio tidak tersedia.");
+
+        }
+
+        </script>
+        """,
+        height=0
+    )
+
+
+# =========================================================
+# 36. HALAMAN TES DIAGNOSTIK
+# =========================================================
+
+def halaman_tes():
+
+    tampilkan_header()
+
+    st.title("📝 Tes Diagnostik Four-Tier")
+
+    # -----------------------------------------------------
+    # Jika ujian dihentikan
+    # -----------------------------------------------------
+
+    if st.session_state.ujian_dihentikan:
+
+        st.error("🚫 Ujian dihentikan.")
+
+        st.write("""
+        Ujian dihentikan karena telah terjadi tiga kali
+        pelanggaran yang tercatat oleh sistem.
+
+        Hasil ujian ditandai untuk pemeriksaan guru.
+        """)
+
+        st.warning(
+            "Silakan hubungi guru untuk pemeriksaan lebih lanjut."
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # Jika belum memulai ujian
+    # -----------------------------------------------------
+
+    if not st.session_state.ujian_aktif:
+
+        st.subheader("Pengaturan Keamanan Ujian")
+
+        st.write("""
+        Pilih metode pemantauan sebelum memulai ujian.
+        """)
+
+        mode = st.selectbox(
+            "Pilih Mode Keamanan",
+            MODE_KEAMANAN
+        )
+
+        if mode == "Website Monitoring":
+
+            st.info("""
+            Sistem mencoba mendeteksi perpindahan tab,
+            hilangnya fokus halaman, dan keluar dari
+            mode layar penuh.
+            """)
+
+        elif mode == "Safe Exam Browser (SEB)":
+
+            st.warning("""
+            Mode SEB membutuhkan aplikasi Safe Exam Browser
+            yang telah dipasang dan dikonfigurasi pada perangkat
+            siswa. Aplikasi Streamlit ini belum dapat memastikan
+            bahwa SEB benar-benar digunakan.
+            """)
+
+        else:
+
+            st.info("""
+            Mode Gabungan menggabungkan pemantauan website
+            dengan penggunaan Safe Exam Browser yang
+            dikonfigurasi secara terpisah.
+            """)
+
+        st.divider()
+
+        st.subheader("Petunjuk Ujian")
+
+        st.write("""
+        1. Ujian terdiri dari 10 soal.
+        2. Setiap soal memiliki empat tingkat pertanyaan.
+        3. Jawablah sesuai pemahaman sendiri.
+        4. Pilih tingkat keyakinan secara jujur.
+        5. Jangan meninggalkan halaman ujian.
+        """)
+
+        persetujuan = st.checkbox(
+            "Saya siap mengikuti ujian dan memahami petunjuk."
+        )
+
+        if st.button(
+            "Mulai Ujian",
+            disabled=not persetujuan,
+            use_container_width=True
+        ):
+
+            mulai_ujian(mode)
+
+        return
+
+    # -----------------------------------------------------
+    # Pemantauan ujian
+    # -----------------------------------------------------
+
+    st.info(
+        f"Mode keamanan: {st.session_state.mode_ujian}"
+    )
+
+    st.write(
+        f"Pelanggaran tercatat: "
+        f"{st.session_state.pelanggaran_sesi}/"
+        f"{BATAS_PELANGGARAN}"
+    )
+
+    tampilkan_monitor_website()
+
+    st.divider()
+
+    # -----------------------------------------------------
+    # Menentukan nomor soal
+    # -----------------------------------------------------
+
+    nomor = st.session_state.nomor_soal
+
+    soal = SOAL[nomor]
+
+    st.subheader(
+        f"Soal {nomor + 1} dari {JUMLAH_SOAL}"
+    )
+
+    st.progress(
+        (nomor + 1) / JUMLAH_SOAL
+    )
+
+    st.write(
+        f"**Materi: {soal['materi']}**"
+    )
+
+    st.write(
+        soal["pertanyaan"]
+    )
+
+    # -----------------------------------------------------
+    # Mengambil jawaban sebelumnya
+    # -----------------------------------------------------
+
+    data_lama = st.session_state.jawaban_siswa.get(
+        str(nomor),
+        {}
+    )
+
+    with st.form(
+        key=f"form_soal_{nomor}"
+    ):
+
+        st.markdown("### Tingkat 1 — Jawaban")
+
+        jawaban = st.radio(
+            "Pilih jawaban yang paling tepat:",
+            options=["A", "B", "C", "D"],
+            format_func=lambda x: next(
+                item for item in soal["pilihan"]
+                if item.startswith(x + ".")
+            ),
+            index=(
+                ["A", "B", "C", "D"].index(
+                    data_lama["jawaban"]
+                )
+                if data_lama.get("jawaban") in
+                ["A", "B", "C", "D"]
+                else None
+            ),
+            key=f"jawaban_{nomor}"
+        )
+
+        st.markdown("### Tingkat 2 — Keyakinan Jawaban")
+
+        yakin_jawaban = st.radio(
+            "Seberapa yakin Anda terhadap jawaban tersebut?",
+            ["Yakin", "Tidak Yakin"],
+            index=(
+                ["Yakin", "Tidak Yakin"].index(
+                    data_lama["keyakinan_jawaban"]
+                )
+                if data_lama.get("keyakinan_jawaban")
+                in ["Yakin", "Tidak Yakin"]
+                else None
+            ),
+            key=f"keyakinan_jawaban_{nomor}"
+        )
+
+        st.markdown("### Tingkat 3 — Alasan")
+
+        alasan = st.radio(
+            "Pilih alasan yang paling tepat:",
+            options=["A", "B", "C", "D"],
+            format_func=lambda x: next(
+                item for item in soal["alasan"]
+                if item.startswith(x + ".")
+            ),
+            index=(
+                ["A", "B", "C", "D"].index(
+                    data_lama["alasan"]
+                )
+                if data_lama.get("alasan") in
+                ["A", "B", "C", "D"]
+                else None
+            ),
+            key=f"alasan_{nomor}"
+        )
+
+        st.markdown("### Tingkat 4 — Keyakinan Alasan")
+
+        yakin_alasan = st.radio(
+            "Seberapa yakin Anda terhadap alasan tersebut?",
+            ["Yakin", "Tidak Yakin"],
+            index=(
+                ["Yakin", "Tidak Yakin"].index(
+                    data_lama["keyakinan_alasan"]
+                )
+                if data_lama.get("keyakinan_alasan")
+                in ["Yakin", "Tidak Yakin"]
+                else None
+            ),
+            key=f"keyakinan_alasan_{nomor}"
+        )
+
+        st.divider()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            tombol_sebelumnya = st.form_submit_button(
+                "Soal Sebelumnya",
+                disabled=(nomor == 0),
+                use_container_width=True
+            )
+
+        with col2:
+
+            tombol_selanjutnya = st.form_submit_button(
+                "Simpan dan Lanjutkan"
+                if nomor < JUMLAH_SOAL - 1
+                else "Selesaikan Ujian",
+                use_container_width=True
+            )
+
+    # -----------------------------------------------------
+    # Menyimpan jawaban dan berpindah soal
+    # -----------------------------------------------------
+
+    if tombol_sebelumnya or tombol_selanjutnya:
+
+        if (
+            jawaban is None
+            or yakin_jawaban is None
+            or alasan is None
+            or yakin_alasan is None
+        ):
+
+            st.error(
+                "Silakan lengkapi seluruh tingkat pertanyaan."
+            )
+
+            return
+
+        st.session_state.jawaban_siswa[
+            str(nomor)
+        ] = {
+
+            "jawaban": jawaban,
+
+            "keyakinan_jawaban": yakin_jawaban,
+
+            "alasan": alasan,
+
+            "keyakinan_alasan": yakin_alasan
+
+        }
+
+        if tombol_sebelumnya:
+
+            st.session_state.nomor_soal -= 1
+
+            st.rerun()
+
+        elif tombol_selanjutnya:
+
+            if nomor < JUMLAH_SOAL - 1:
+
+                st.session_state.nomor_soal += 1
+
+                st.rerun()
+
+            else:
+
+                if len(st.session_state.jawaban_siswa) != JUMLAH_SOAL:
+
+                    st.error(
+                        "Masih ada soal yang belum dijawab."
+                    )
+
+                    return
+
+                hasil = analisis_jawaban(
+                    st.session_state.jawaban_siswa
+                )
+
+                simpan_hasil_tes(
+                    st.session_state.username,
+                    hasil
+                )
+
+                st.session_state.hasil_ujian = hasil
+
+                st.session_state.ujian_aktif = False
+                st.session_state.ujian_selesai = True
+
+                st.session_state.halaman = "Hasil Diagnosis"
+
+                st.rerun()
+
+# =========================================================
+# 37. HALAMAN HASIL DIAGNOSIS
+# =========================================================
+
+def halaman_hasil_diagnosis():
+
+    tampilkan_header()
+
+    st.title("📊 Hasil Diagnosis Miskonsepsi")
+
+    if st.session_state.hasil_ujian is None:
+
+        st.info(
+            "Belum ada hasil diagnosis pada sesi ini. "
+            "Silakan kerjakan tes diagnostik terlebih dahulu."
+        )
+
+        riwayat = ambil_riwayat_siswa(
+            st.session_state.username
+        )
+
+        if not riwayat.empty:
+
+            st.subheader("Riwayat Hasil Tes")
+
+            st.dataframe(
+                riwayat,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        return
+
+    hasil = st.session_state.hasil_ujian
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        st.metric(
+            "Skor Pemahaman",
+            f"{hasil['skor']:.1f}"
+        )
+
+    with col2:
+
+        st.metric(
+            "Paham Konsep",
+            hasil["jumlah_paham"]
+        )
+
+    with col3:
+
+        st.metric(
+            "Miskonsepsi",
+            hasil["jumlah_miskonsepsi"]
+        )
+
+    with col4:
+
+        st.metric(
+            "Tidak Paham",
+            hasil["jumlah_tidak_paham"]
+        )
+
+    st.divider()
+
+    st.subheader("Distribusi Hasil Diagnosis")
+
+    data_grafik = pd.DataFrame({
+
+        "Kategori": [
+            "Paham Konsep",
+            "Miskonsepsi",
+            "Tidak Paham Konsep",
+            "Menebak"
+        ],
+
+        "Jumlah": [
+            hasil["jumlah_paham"],
+            hasil["jumlah_miskonsepsi"],
+            hasil["jumlah_tidak_paham"],
+            hasil["jumlah_menebak"]
+        ]
+
+    })
+
+    st.bar_chart(
+        data_grafik.set_index("Kategori")
+    )
+
+    st.divider()
+
+    st.subheader("Rincian Diagnosis Setiap Soal")
+
+    detail = pd.DataFrame(
+        hasil["detail"]
+    )
+
+    kolom_tampil = [
+        "Nomor",
+        "Materi",
+        "Kategori",
+        "Jawaban Siswa",
+        "Jawaban Benar"
+    ]
+
+    st.dataframe(
+        detail[kolom_tampil],
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.divider()
+
+    st.subheader("Pembahasan Jawaban")
+
+    for item in hasil["detail"]:
+
+        with st.expander(
+            f"Soal {item['Nomor']} - {item['Materi']}"
+        ):
+
+            st.write(
+                f"**Kategori:** {item['Kategori']}"
+            )
+
+            st.write(
+                f"**Jawaban siswa:** {item['Jawaban Siswa']}"
+            )
+
+            st.write(
+                f"**Jawaban benar:** {item['Jawaban Benar']}"
+            )
+
+            st.write(
+                f"**Alasan siswa:** {item['Alasan Siswa']}"
+            )
+
+            st.write(
+                f"**Alasan benar:** {item['Alasan Benar']}"
+            )
+
+            st.info(
+                item["Pembahasan"]
+            )
+
+    st.divider()
+
+    if hasil["jumlah_miskonsepsi"] > 0:
+
+        st.warning(
+            "Masih terdapat konsep yang mengalami miskonsepsi. "
+            "Silakan pelajari kembali materi remedial."
+        )
+
+        if st.button(
+            "Buka Materi Remedial",
+            use_container_width=True
+        ):
+
+            st.session_state.halaman = "Materi Remedial"
+            st.rerun()
+
+    else:
+
+        st.success(
+            "Tidak ditemukan miskonsepsi berdasarkan "
+            "aturan diagnosis yang digunakan."
+        )
+
+
+# =========================================================
+# 38. HALAMAN PETA MISKONSEPSI
+# =========================================================
+
+def halaman_peta_miskonsepsi():
+
+    tampilkan_header()
+
+    st.title("🗺️ Peta Miskonsepsi")
+
+    st.write("""
+    Peta miskonsepsi menunjukkan materi yang paling banyak
+    mengalami kesalahan pemahaman berdasarkan hasil tes siswa.
+    """)
+
+    hasil = st.session_state.hasil_ujian
+
+    if hasil is None:
+
+        st.info(
+            "Peta miskonsepsi akan tersedia setelah "
+            "siswa menyelesaikan tes."
+        )
+
+        return
+
+    detail = pd.DataFrame(
+        hasil["detail"]
+    )
+
+    ringkasan = detail.groupby(
+        ["Materi", "Kategori"]
+    ).size().unstack(fill_value=0)
+
+    kategori = [
+        "Paham Konsep",
+        "Miskonsepsi",
+        "Tidak Paham Konsep",
+        "Menebak"
+    ]
+
+    for nama in kategori:
+
+        if nama not in ringkasan.columns:
+
+            ringkasan[nama] = 0
+
+    ringkasan = ringkasan[kategori]
+
+    st.subheader("Sebaran Diagnosis Berdasarkan Materi")
+
+    st.dataframe(
+        ringkasan,
+        use_container_width=True
+    )
+
+    st.bar_chart(
+        ringkasan
+    )
+
+    st.divider()
+
+    st.subheader("Materi yang Perlu Diperbaiki")
+
+    jumlah_miskonsepsi = (
+        detail[
+            detail["Kategori"] == "Miskonsepsi"
+        ]
+        .groupby("Materi")
+        .size()
+        .sort_values(ascending=False)
+    )
+
+    if jumlah_miskonsepsi.empty:
+
+        st.success(
+            "Tidak ditemukan kategori miskonsepsi."
+        )
+
+    else:
+
+        for materi, jumlah in jumlah_miskonsepsi.items():
+
+            st.warning(
+                f"**{materi}**: {jumlah} soal mengalami miskonsepsi."
+            )
+
+
+# =========================================================
+# 39. HALAMAN MATERI REMEDIAL
+# =========================================================
+
+def halaman_remedial():
+
+    tampilkan_header()
+
+    st.title("📚 Materi Remedial")
+
+    st.write("""
+    Materi remedial digunakan untuk membantu siswa
+    memperbaiki pemahaman terhadap konsep yang belum dikuasai.
+    """)
+
+    hasil = st.session_state.hasil_ujian
+
+    materi_rekomendasi = []
+
+    if hasil is not None:
+
+        for item in hasil["detail"]:
+
+            if item["Kategori"] in [
+                "Miskonsepsi",
+                "Tidak Paham Konsep"
+            ]:
+
+                if item["Materi"] not in materi_rekomendasi:
+
+                    materi_rekomendasi.append(
+                        item["Materi"]
+                    )
+
+    if materi_rekomendasi:
+
+        st.subheader("Rekomendasi Materi untuk Dipelajari")
+
+        for materi in materi_rekomendasi:
+
+            st.warning(
+                f"Perlu mempelajari kembali: {materi}"
+            )
+
+    else:
+
+        st.info(
+            "Semua materi tersedia untuk dipelajari secara mandiri."
+        )
+
+    st.divider()
+
+    pilihan_materi = st.selectbox(
+        "Pilih materi pembelajaran",
+        list(MATERI.keys())
+    )
+
+    materi = MATERI[pilihan_materi]
+
+    st.subheader(
+        materi["judul"]
+    )
+
+    st.markdown(
+        materi["isi"]
+    )
+
+    if "rumus" in materi:
+
+        st.divider()
+
+        st.subheader("Rumus Penting")
+
+        st.latex(
+            materi["rumus"]
+        )
+
+    st.divider()
+
+    st.subheader("Pemahaman Materi")
+
+    st.write("""
+    Setelah mempelajari materi, pastikan Anda dapat
+    menjelaskan kembali konsep menggunakan bahasa sendiri.
+    """)
+
+    sudah_paham = st.checkbox(
+        "Saya sudah mempelajari dan memahami materi ini."
+    )
+
+    if sudah_paham:
+
+        st.success(
+            "Bagus! Lanjutkan mempelajari materi lainnya."
+        )
+
+
+# =========================================================
+# 40. HALAMAN LABORATORIUM VIRTUAL
+# =========================================================
+
+def halaman_laboratorium():
+
+    tampilkan_header()
+
+    st.title("🔬 Laboratorium Virtual")
+
+    st.write("""
+    Laboratorium virtual digunakan untuk mempelajari
+    hubungan antara frekuensi, panjang gelombang,
+    kecepatan rambat, dan energi gelombang elektromagnetik.
+    """)
+
+    st.divider()
+
+    st.subheader("Simulasi Frekuensi dan Panjang Gelombang")
+
+    frekuensi = st.slider(
+        "Frekuensi gelombang (Hz)",
+        min_value=1,
+        max_value=100,
+        value=10,
+        step=1
+    )
+
+    # Kecepatan disederhanakan menjadi 300 m/s
+    # agar hasil simulasi mudah diamati.
+
+    kecepatan_simulasi = 300
+
+    panjang_gelombang = (
+        kecepatan_simulasi / frekuensi
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.metric(
+            "Frekuensi",
+            f"{frekuensi} Hz"
+        )
+
+    with col2:
+
+        st.metric(
+            "Panjang Gelombang",
+            f"{panjang_gelombang:.2f} m"
+        )
+
+    st.info(
+        "Simulasi menggunakan kecepatan rambat 300 m/s "
+        "sebagai nilai ilustrasi, bukan kecepatan cahaya "
+        "di ruang hampa."
+    )
+
+    st.latex(
+        r"v = \lambda f"
+    )
+
+    st.latex(
+        rf"\lambda = \frac{{{kecepatan_simulasi}}}{{{frekuensi}}}"
+    )
+
+    st.divider()
+
+    st.subheader("Grafik Gelombang")
+
+    x = np.linspace(
+        0,
+        2 * np.pi,
+        500
+    )
+
+    y = np.sin(
+        frekuensi / 10 * x
+    )
+
+    grafik, ax = plt.subplots()
 
     ax.plot(
-        grafik["tanggal"],
-        grafik["nilai"],
-        marker="o"
+        x,
+        y
     )
 
-    ax.set_xlabel("Tanggal Tes")
+    ax.set_title(
+        "Simulasi Bentuk Gelombang"
+    )
 
-    ax.set_ylabel("Nilai")
+    ax.set_xlabel(
+        "Posisi"
+    )
 
-    ax.set_ylim(0, 100)
-
-    ax.set_title("Perkembangan Nilai Tes")
+    ax.set_ylabel(
+        "Amplitudo"
+    )
 
     ax.grid(True)
 
-    plt.xticks(rotation=30)
+    st.pyplot(
+        grafik
+    )
 
-    plt.tight_layout()
+    plt.close(grafik)
 
-    st.pyplot(fig)
+    st.divider()
 
-    plt.close(fig)
+    st.subheader("Simulasi Energi Foton")
+
+    frekuensi_foton = st.number_input(
+        "Frekuensi foton (Hz)",
+        min_value=1.0,
+        value=1e14,
+        format="%.2e"
+    )
+
+    energi = H * frekuensi_foton
+
+    st.metric(
+        "Energi Foton",
+        f"{energi:.4e} Joule"
+    )
+
+    st.latex(
+        r"E = hf"
+    )
+
+    st.write(
+        "Semakin besar frekuensi, semakin besar energi foton."
+    )
+
 
 # =========================================================
-# 23. DASHBOARD GURU
+# 41. HALAMAN RIWAYAT TES
+# =========================================================
+
+def halaman_riwayat():
+
+    tampilkan_header()
+
+    st.title("📜 Riwayat Tes")
+
+    riwayat = ambil_riwayat_siswa(
+        st.session_state.username
+    )
+
+    if riwayat.empty:
+
+        st.info(
+            "Belum terdapat riwayat tes."
+        )
+
+        return
+
+    st.subheader("Data Riwayat")
+
+    st.dataframe(
+        riwayat,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.divider()
+
+    st.subheader("Grafik Perkembangan Skor")
+
+    grafik_data = riwayat.copy()
+
+    grafik_data["Tanggal"] = pd.to_datetime(
+        grafik_data["Tanggal"]
+    )
+
+    grafik_data = grafik_data.sort_values(
+        "Tanggal"
+    )
+
+    st.line_chart(
+        grafik_data.set_index("Tanggal")["Skor"]
+    )
+
+    st.divider()
+
+    st.subheader("Ringkasan Perkembangan")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "Jumlah Tes",
+            len(riwayat)
+        )
+
+    with col2:
+
+        st.metric(
+            "Skor Tertinggi",
+            f"{riwayat['Skor'].max():.1f}"
+        )
+
+    with col3:
+
+        st.metric(
+            "Rata-rata Skor",
+            f"{riwayat['Skor'].mean():.1f}"
+        )
+
+    csv = riwayat.to_csv(
+        index=False
+    ).encode("utf-8")
+
+    st.download_button(
+        "Unduh Riwayat dalam CSV",
+        data=csv,
+        file_name="riwayat_tes.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+# =========================================================
+# 42. DASHBOARD GURU
 # =========================================================
 
 def halaman_guru():
 
-    header()
+    tampilkan_header()
 
-    st.title("Dashboard Guru")
+    st.title("👨‍🏫 Dashboard Guru")
 
-    siswa = ambil_semua_siswa()
+    st.write("""
+    Dashboard ini digunakan guru untuk memantau hasil
+    tes diagnostik, menganalisis miskonsepsi siswa,
+    dan memeriksa catatan pelanggaran ujian.
+    """)
+
+    # -----------------------------------------------------
+    # Mengambil data
+    # -----------------------------------------------------
 
     hasil = ambil_semua_hasil()
 
-    a, b, c, d = st.columns(4)
-
-    a.metric(
-        "Jumlah Siswa",
-        len(siswa)
-    )
-
-    b.metric(
-        "Jumlah Tes",
-        len(hasil)
-    )
-
-    rata_rata = (
-        round(hasil["nilai"].mean(), 2)
-        if not hasil.empty
-        else 0
-    )
-
-    c.metric(
-        "Rata-rata Nilai",
-        rata_rata
-    )
-
-    d.metric(
-        "Nilai Tertinggi",
-        round(hasil["nilai"].max(), 2)
-        if not hasil.empty
-        else 0
-    )
+    pelanggaran = ambil_semua_pelanggaran()
 
     st.divider()
 
-    st.subheader("Data Siswa")
+    # -----------------------------------------------------
+    # Ringkasan pelanggaran
+    # -----------------------------------------------------
 
-    st.dataframe(
-        siswa,
-        use_container_width=True,
-        hide_index=True
-    )
+    st.subheader("🔐 Pemantauan Keamanan Ujian")
+
+    if pelanggaran.empty:
+
+        st.success(
+            "Belum terdapat catatan pelanggaran ujian."
+        )
+
+    else:
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            st.metric(
+                "Jumlah Catatan Pelanggaran",
+                len(pelanggaran)
+            )
+
+        with col2:
+
+            st.metric(
+                "Jumlah Siswa Terpantau",
+                pelanggaran["Nama Siswa"].nunique()
+            )
+
+        st.subheader("Daftar Pelanggaran")
+
+        st.dataframe(
+            pelanggaran,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.download_button(
+            "Unduh Data Pelanggaran CSV",
+            data=pelanggaran.to_csv(
+                index=False
+            ).encode("utf-8"),
+            file_name="data_pelanggaran.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
     st.divider()
 
-    st.subheader("Laporan Hasil Tes")
+    # -----------------------------------------------------
+    # Jika belum ada hasil tes
+    # -----------------------------------------------------
 
     if hasil.empty:
 
-        st.info("Belum ada hasil tes siswa.")
+        st.info(
+            "Belum ada hasil tes siswa yang tersimpan."
+        )
 
         return
 
-    laporan = hasil.drop(
-        columns=["hasil_json", "user_id", "test_id"]
+    # -----------------------------------------------------
+    # Ringkasan hasil tes
+    # -----------------------------------------------------
+
+    st.subheader("📊 Ringkasan Hasil Tes Siswa")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        st.metric(
+            "Jumlah Tes",
+            len(hasil)
+        )
+
+    with col2:
+
+        st.metric(
+            "Jumlah Siswa",
+            hasil["Nama Siswa"].nunique()
+        )
+
+    with col3:
+
+        st.metric(
+            "Rata-rata Skor",
+            f"{hasil['Skor'].mean():.1f}"
+        )
+
+    with col4:
+
+        st.metric(
+            "Total Miskonsepsi",
+            int(
+                hasil["Jumlah Miskonsepsi"].sum()
+            )
+        )
+
+    st.divider()
+
+    # -----------------------------------------------------
+    # Data seluruh siswa
+    # -----------------------------------------------------
+
+    st.subheader("Data Hasil Tes")
+
+    data_tampil = hasil.drop(
+        columns=["Detail Jawaban"],
+        errors="ignore"
     )
 
     st.dataframe(
-        laporan,
+        data_tampil,
         use_container_width=True,
         hide_index=True
     )
 
-    st.divider()
+    # -----------------------------------------------------
+    # Grafik nilai siswa
+    # -----------------------------------------------------
 
-    # =====================================================
-    # GRAFIK NILAI SISWA
-    # =====================================================
+    st.subheader("Grafik Skor Siswa")
 
-    st.subheader("Grafik Nilai Siswa")
+    grafik_siswa = hasil.groupby(
+        "Nama Siswa"
+    )["Skor"].mean()
 
-    grafik_nilai = hasil.copy()
-
-    grafik_nilai["label"] = (
-        grafik_nilai["nama"]
-        + " | "
-        + grafik_nilai["tanggal"].astype(str)
+    st.bar_chart(
+        grafik_siswa
     )
-
-    fig, ax = plt.subplots(figsize=(11, 5))
-
-    ax.bar(
-        grafik_nilai["label"],
-        grafik_nilai["nilai"]
-    )
-
-    ax.set_ylabel("Nilai")
-
-    ax.set_ylim(0, 100)
-
-    ax.set_title("Nilai Tes Siswa")
-
-    ax.grid(
-        axis="y",
-        linestyle="--",
-        alpha=0.4
-    )
-
-    plt.xticks(
-        rotation=45,
-        ha="right"
-    )
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    plt.close(fig)
 
     st.divider()
 
-    # =====================================================
-    # ANALISIS DIAGNOSIS SISWA
-    # =====================================================
+    # -----------------------------------------------------
+    # Analisis materi
+    # -----------------------------------------------------
 
-    st.subheader("Analisis Kategori Diagnosis")
+    st.subheader("Analisis Miskonsepsi Berdasarkan Materi")
 
-    rincian = []
+    semua_detail = []
 
     for _, baris in hasil.iterrows():
 
         try:
 
-            daftar_hasil = json.loads(
-                baris["hasil_json"]
+            detail = json.loads(
+                baris["Detail Jawaban"]
             )
+
+            for item in detail:
+
+                item["Nama Siswa"] = baris["Nama Siswa"]
+
+                semua_detail.append(item)
 
         except Exception:
 
-            daftar_hasil = []
+            continue
 
-        for item in daftar_hasil:
+    if semua_detail:
 
-            rincian.append({
-
-                "Nama": baris["nama"],
-
-                "Username": baris["username"],
-
-                "Tanggal": baris["tanggal"],
-
-                "Nomor Soal": item.get("nomor"),
-
-                "Materi": item.get("topik"),
-
-                "Kategori": item.get("kategori"),
-
-                "Jawaban": item.get("jawaban_siswa"),
-
-                "Alasan": item.get("alasan_siswa")
-
-            })
-
-    df_rincian = pd.DataFrame(rincian)
-
-    if not df_rincian.empty:
-
-        st.subheader("Distribusi Kategori")
-
-        distribusi = df_rincian[
-            "Kategori"
-        ].value_counts()
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-
-        distribusi.sort_values().plot(
-            kind="barh",
-            ax=ax
+        detail_df = pd.DataFrame(
+            semua_detail
         )
 
-        ax.set_xlabel("Jumlah")
+        analisis_materi = detail_df.groupby(
+            ["Materi", "Kategori"]
+        ).size().unstack(fill_value=0)
 
-        ax.set_ylabel("Kategori")
+        kategori = [
+            "Paham Konsep",
+            "Miskonsepsi",
+            "Tidak Paham Konsep",
+            "Menebak"
+        ]
 
-        ax.set_title(
-            "Distribusi Diagnosis Seluruh Siswa"
-        )
+        for nama in kategori:
 
-        ax.grid(
-            axis="x",
-            linestyle="--",
-            alpha=0.4
-        )
+            if nama not in analisis_materi.columns:
 
-        plt.tight_layout()
+                analisis_materi[nama] = 0
 
-        st.pyplot(fig)
-
-        plt.close(fig)
-
-        st.subheader("Materi yang Memerlukan Perhatian")
-
-        tabel_materi = pd.crosstab(
-            df_rincian["Materi"],
-            df_rincian["Kategori"]
-        )
+        analisis_materi = analisis_materi[
+            kategori
+        ]
 
         st.dataframe(
-            tabel_materi,
+            analisis_materi,
             use_container_width=True
         )
 
-        st.subheader("Rincian Diagnosis")
+        st.bar_chart(
+            analisis_materi
+        )
+
+        st.divider()
+
+        st.subheader("Rincian Diagnosis Siswa")
+
+        nama_siswa = st.selectbox(
+            "Pilih siswa",
+            sorted(
+                detail_df["Nama Siswa"].unique()
+            )
+        )
+
+        rincian_siswa = detail_df[
+            detail_df["Nama Siswa"] == nama_siswa
+        ]
 
         st.dataframe(
-            df_rincian,
+            rincian_siswa[
+                [
+                    "Nomor",
+                    "Materi",
+                    "Jawaban Siswa",
+                    "Jawaban Benar",
+                    "Kategori"
+                ]
+            ],
             use_container_width=True,
             hide_index=True
         )
 
+    # -----------------------------------------------------
+    # Ekspor Excel
+    # -----------------------------------------------------
+
     st.divider()
 
-    # =====================================================
-    # EKSPOR EXCEL
-    # =====================================================
+    st.subheader("📥 Ekspor Data Excel")
 
-    st.subheader("Ekspor Laporan")
-
-    output = io.BytesIO()
-
-    with pd.ExcelWriter(
-        output,
-        engine="openpyxl"
-    ) as writer:
-
-        laporan.to_excel(
-            writer,
-            index=False,
-            sheet_name="Ringkasan Tes"
-        )
-
-        siswa.to_excel(
-            writer,
-            index=False,
-            sheet_name="Data Siswa"
-        )
-
-        if not df_rincian.empty:
-
-            df_rincian.to_excel(
-                writer,
-                index=False,
-                sheet_name="Rincian Diagnosis"
-            )
-
-            tabel_materi.to_excel(
-                writer,
-                sheet_name="Analisis Materi"
-            )
-
-    st.download_button(
-        label="📥 Download Laporan Excel",
-        data=output.getvalue(),
-        file_name="laporan_misconcept_ai.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    if st.button(
+        "Buat Laporan Excel",
         use_container_width=True
-    )
+    ):
 
-# =========================================================
-# 24. SIDEBAR DAN NAVIGASI
-# =========================================================
+        output = io.BytesIO()
 
-def tampilkan_sidebar():
+        with pd.ExcelWriter(
+            output,
+            engine="openpyxl"
+        ) as writer:
 
-    pengguna = st.session_state.pengguna
+            hasil.drop(
+                columns=["Detail Jawaban"],
+                errors="ignore"
+            ).to_excel(
+                writer,
+                sheet_name="Ringkasan Tes",
+                index=False
+            )
 
-    st.sidebar.title("🧠 MISCONCEPT AI")
+            hasil[
+                [
+                    "Nama Siswa",
+                    "Tanggal",
+                    "Skor",
+                    "Total Soal",
+                    "Jumlah Miskonsepsi",
+                    "Jumlah Paham"
+                ]
+            ].to_excel(
+                writer,
+                sheet_name="Data Siswa",
+                index=False
+            )
 
-    if pengguna is None:
+            if semua_detail:
 
-        st.sidebar.caption("Menu Pengunjung")
+                detail_df.to_excel(
+                    writer,
+                    sheet_name="Rincian Diagnosis",
+                    index=False
+                )
 
-        daftar_menu = [
-            ("🏠 Beranda", "Beranda"),
-            ("🔐 Login", "Login"),
-            ("📝 Daftar Siswa", "Daftar")
-        ]
+                analisis_materi.to_excel(
+                    writer,
+                    sheet_name="Analisis Materi"
+                )
 
-    elif pengguna["role"] == "Siswa":
+            if not pelanggaran.empty:
 
-        st.sidebar.caption(
-            f"Siswa: {pengguna['nama']}"
-        )
+                pelanggaran.to_excel(
+                    writer,
+                    sheet_name="Pelanggaran Ujian",
+                    index=False
+                )
 
-        daftar_menu = [
-            ("🏠 Dashboard", "Dashboard"),
-            ("📝 Tes Four-Tier", "Tes Four-Tier"),
-            ("📊 Hasil Diagnosis", "Hasil Diagnosis"),
-            ("🗺️ Peta Miskonsepsi", "Peta Miskonsepsi"),
-            ("📚 Pembelajaran Remedial", "Pembelajaran Remedial"),
-            ("🌐 Laboratorium Virtual", "Laboratorium Virtual"),
-            ("📋 Riwayat Tes", "Riwayat Tes")
-        ]
-
-    elif pengguna["role"] == "Guru":
-
-        st.sidebar.caption(
-            f"Guru: {pengguna['nama']}"
-        )
-
-        daftar_menu = [
-            ("📊 Dashboard Guru", "Dashboard Guru")
-        ]
-
-    else:
-
-        daftar_menu = [
-            ("🏠 Beranda", "Beranda")
-        ]
-
-    for label, halaman in daftar_menu:
-
-        if st.sidebar.button(
-            label,
-            key=f"nav_{halaman}",
+        st.download_button(
+            label="Unduh Laporan Excel",
+            data=output.getvalue(),
+            file_name="laporan_miskonseption.xlsx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
             use_container_width=True
-        ):
-
-            ke_halaman(halaman)
-            st.rerun()
-
-    if pengguna is not None:
-
-        st.sidebar.divider()
-
-        st.sidebar.write(
-            f"**{pengguna['nama']}**"
         )
 
-        st.sidebar.write(
-            f"Peran: {pengguna['role']}"
-        )
-
-        if st.sidebar.button(
-            "🚪 Logout",
-            use_container_width=True
-        ):
-
-            keluar()
-            st.rerun()
 
 # =========================================================
-# 25. ROUTING HALAMAN
+# 43. FUNGSI PENGATUR HALAMAN
 # =========================================================
 
-def jalankan_aplikasi():
-
-    tampilkan_sidebar()
+def tampilkan_halaman():
 
     halaman = st.session_state.halaman
 
-    pengguna = st.session_state.pengguna
+    # -----------------------------------------------------
+    # Halaman umum
+    # -----------------------------------------------------
 
-    # -----------------------------------------
-    # PENGUNJUNG
-    # -----------------------------------------
-
-    if pengguna is None:
-
-        halaman_pengunjung = {
-            "Beranda": halaman_beranda,
-            "Login": halaman_login,
-            "Daftar": halaman_daftar
-        }
-
-        fungsi = halaman_pengunjung.get(
-            halaman,
-            halaman_beranda
-        )
-
-        fungsi()
-
-    # -----------------------------------------
-    # SISWA
-    # -----------------------------------------
-
-    elif pengguna["role"] == "Siswa":
-
-        halaman_siswa = {
-
-            "Dashboard": halaman_dashboard,
-
-            "Tes Four-Tier": halaman_tes,
-
-            "Hasil Diagnosis": halaman_hasil,
-
-            "Peta Miskonsepsi": halaman_peta,
-
-            "Pembelajaran Remedial": halaman_remedial,
-
-            "Laboratorium Virtual": halaman_laboratorium,
-
-            "Riwayat Tes": halaman_riwayat
-
-        }
-
-        fungsi = halaman_siswa.get(
-            halaman,
-            halaman_dashboard
-        )
-
-        fungsi()
-
-    # -----------------------------------------
-    # GURU
-    # -----------------------------------------
-
-    elif pengguna["role"] == "Guru":
-
-        halaman_guru()
-
-    else:
-
-        keluar()
+    if halaman == "Beranda":
 
         halaman_beranda()
 
+    elif halaman == "Login":
+
+        halaman_login()
+
+    elif halaman == "Registrasi":
+
+        halaman_registrasi()
+
+    # -----------------------------------------------------
+    # Halaman siswa
+    # -----------------------------------------------------
+
+    elif halaman == "Dashboard Siswa":
+
+        if hanya_siswa():
+
+            halaman_dashboard_siswa()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    elif halaman == "Tes Diagnostik":
+
+        if hanya_siswa():
+
+            halaman_tes()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    elif halaman == "Hasil Diagnosis":
+
+        if hanya_siswa():
+
+            halaman_hasil_diagnosis()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    elif halaman == "Peta Miskonsepsi":
+
+        if hanya_siswa():
+
+            halaman_peta_miskonsepsi()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    elif halaman == "Materi Remedial":
+
+        if hanya_siswa():
+
+            halaman_remedial()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    elif halaman == "Laboratorium Virtual":
+
+        if hanya_siswa():
+
+            halaman_laboratorium()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    elif halaman == "Riwayat Tes":
+
+        if hanya_siswa():
+
+            halaman_riwayat()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman ini."
+            )
+
+    # -----------------------------------------------------
+    # Halaman guru
+    # -----------------------------------------------------
+
+    elif halaman == "Dashboard Guru":
+
+        if hanya_guru():
+
+            halaman_guru()
+
+        else:
+
+            st.error(
+                "Anda tidak memiliki akses ke halaman guru."
+            )
+
+    else:
+
+        st.warning(
+            "Halaman tidak ditemukan."
+        )
+
+        st.session_state.halaman = "Beranda"
+
+        st.rerun()
+
+
 # =========================================================
-# 26. JALANKAN
+# 44. FUNGSI UTAMA APLIKASI
 # =========================================================
 
-jalankan_aplikasi()
+def main():
+
+    # Sidebar navigasi
+    halaman_sidebar()
+
+    # Tampilan halaman utama
+    tampilkan_halaman()
+
+
+# =========================================================
+# 45. MENJALANKAN APLIKASI
+# =========================================================
+
+if __name__ == "__main__":
+
+    main()
