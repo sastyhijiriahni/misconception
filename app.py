@@ -294,6 +294,7 @@ def inisialisasi_session():
 buat_tabel_keamanan()
 inisialisasi_session()
 
+
 # =========================================================
 # 11. MEMBUAT TABEL PENGGUNA
 # =========================================================
@@ -578,311 +579,231 @@ def hanya_siswa():
 # 19. BANK SOAL FOUR-TIER
 # =========================================================
 
-SOAL = [
-
-    {
-        "id": 1,
-        "materi": "Pengertian Gelombang Elektromagnetik",
-        "pertanyaan": "Gelombang elektromagnetik adalah gelombang yang ....",
-
-        "pilihan": [
-            "A. Memerlukan medium untuk merambat",
-            "B. Tidak memerlukan medium untuk merambat",
-            "C. Hanya dapat merambat dalam zat cair",
-            "D. Hanya dapat merambat dalam zat padat"
-        ],
-
-        "kunci": "B",
-
-        "alasan": [
-            "A. Karena gelombang elektromagnetik membutuhkan partikel medium",
-            "B. Karena gelombang elektromagnetik dapat merambat di ruang hampa",
-            "C. Karena gelombang elektromagnetik hanya merambat melalui udara",
-            "D. Karena gelombang elektromagnetik tidak membawa energi"
-        ],
-
-        "kunci_alasan": "B",
-
-        "pembahasan": (
-            "Gelombang elektromagnetik tidak membutuhkan medium "
-            "untuk merambat. Gelombang ini dapat bergerak di ruang "
-            "hampa, contohnya cahaya Matahari yang sampai ke Bumi."
-        )
-    },
-
-    {
-        "id": 2,
-        "materi": "Sifat Gelombang Elektromagnetik",
-        "pertanyaan": "Gelombang elektromagnetik memiliki medan listrik dan medan magnet yang ....",
-
-        "pilihan": [
-            "A. Sejajar satu sama lain",
-            "B. Saling tegak lurus dan tegak lurus terhadap arah rambat",
-            "C. Berlawanan arah dan tidak berubah",
-            "D. Selalu berada pada satu garis lurus"
-        ],
-
-        "kunci": "B",
-
-        "alasan": [
-            "A. Karena medan listrik dan magnet merambat secara terpisah",
-            "B. Karena gelombang elektromagnetik merupakan gelombang transversal",
-            "C. Karena gelombang elektromagnetik merupakan gelombang longitudinal",
-            "D. Karena medan listrik tidak berhubungan dengan medan magnet"
-        ],
-
-        "kunci_alasan": "B",
-
-        "pembahasan": (
-            "Gelombang elektromagnetik merupakan gelombang transversal. "
-            "Medan listrik dan medan magnet saling tegak lurus serta "
-            "keduanya tegak lurus terhadap arah rambat gelombang."
-        )
-    },
-
-    {
-        "id": 3,
-        "materi": "Kecepatan Gelombang Elektromagnetik",
-        "pertanyaan": "Kecepatan gelombang elektromagnetik di ruang hampa adalah ....",
-
-        "pilihan": [
-            "A. 3 × 10⁶ m/s",
-            "B. 3 × 10⁷ m/s",
-            "C. 3 × 10⁸ m/s",
-            "D. 3 × 10⁹ m/s"
-        ],
-
-        "kunci": "C",
-
-        "alasan": [
-            "A. Karena kecepatan cahaya di ruang hampa sekitar 300.000 km/s",
-            "B. Karena semua gelombang bergerak dengan kecepatan yang sama di udara",
-            "C. Karena gelombang elektromagnetik tidak memiliki kecepatan tetap",
-            "D. Karena kecepatan gelombang elektromagnetik bergantung pada massanya"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Kecepatan gelombang elektromagnetik di ruang hampa "
-            "adalah sekitar 3 × 10⁸ m/s. Nilai ini merupakan "
-            "kecepatan cahaya di ruang hampa."
-        )
-    },
-
-    {
-        "id": 4,
-        "materi": "Hubungan Frekuensi dan Panjang Gelombang",
-        "pertanyaan": "Jika frekuensi gelombang elektromagnetik semakin besar, maka panjang gelombangnya akan ....",
-
-        "pilihan": [
-            "A. Semakin besar",
-            "B. Semakin kecil",
-            "C. Tetap sama",
-            "D. Menjadi nol"
-        ],
-
-        "kunci": "B",
-
-        "alasan": [
-            "A. Karena frekuensi dan panjang gelombang berbanding lurus",
-            "B. Karena frekuensi dan panjang gelombang berbanding terbalik pada kecepatan rambat tetap",
-            "C. Karena frekuensi tidak berhubungan dengan panjang gelombang",
-            "D. Karena panjang gelombang selalu bertambah ketika frekuensi bertambah"
-        ],
-
-        "kunci_alasan": "B",
-
-        "pembahasan": (
-            "Hubungan frekuensi dan panjang gelombang dinyatakan "
-            "dengan rumus c = λf. Pada kecepatan rambat tetap, "
-            "frekuensi yang semakin besar menyebabkan panjang "
-            "gelombang semakin kecil."
-        )
-    },
-
-    {
-        "id": 5,
-        "materi": "Spektrum Elektromagnetik",
-        "pertanyaan": "Urutan gelombang elektromagnetik dari frekuensi paling rendah ke paling tinggi adalah ....",
-
-        "pilihan": [
-            "A. Radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, gamma",
-            "B. Gamma, sinar-X, ultraviolet, cahaya tampak, inframerah, mikro, radio",
-            "C. Radio, inframerah, mikro, ultraviolet, cahaya tampak, gamma, sinar-X",
-            "D. Cahaya tampak, radio, mikro, gamma, ultraviolet, inframerah, sinar-X"
-        ],
-
-        "kunci": "A",
-
-        "alasan": [
-            "A. Karena gelombang radio memiliki frekuensi paling rendah dan gamma paling tinggi",
-            "B. Karena sinar gamma memiliki panjang gelombang paling besar",
-            "C. Karena semua jenis gelombang memiliki frekuensi yang sama",
-            "D. Karena gelombang radio memiliki energi paling tinggi"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Urutan spektrum elektromagnetik dari frekuensi terendah "
-            "ke tertinggi adalah radio, mikro, inframerah, cahaya "
-            "tampak, ultraviolet, sinar-X, dan sinar gamma."
-        )
-    },
-
-    {
-        "id": 6,
-        "materi": "Energi Gelombang Elektromagnetik",
-        "pertanyaan": "Energi foton gelombang elektromagnetik akan semakin besar jika ....",
-
-        "pilihan": [
-            "A. Frekuensinya semakin kecil",
-            "B. Panjang gelombangnya semakin besar",
-            "C. Frekuensinya semakin besar",
-            "D. Kecepatannya menjadi nol"
-        ],
-
-        "kunci": "C",
-
-        "alasan": [
-            "A. Karena energi foton berbanding lurus dengan frekuensi",
-            "B. Karena energi foton tidak dipengaruhi frekuensi",
-            "C. Karena energi foton selalu tetap untuk semua gelombang",
-            "D. Karena energi foton berbanding lurus dengan panjang gelombang"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Energi foton dirumuskan dengan E = hf. Artinya, "
-            "semakin besar frekuensi gelombang elektromagnetik, "
-            "semakin besar pula energi fotonnya."
-        )
-    },
-
-    {
-        "id": 7,
-        "materi": "Gelombang Radio",
-        "pertanyaan": "Gelombang radio banyak dimanfaatkan dalam kehidupan sehari-hari untuk ....",
-
-        "pilihan": [
-            "A. Pemeriksaan tulang menggunakan sinar-X",
-            "B. Komunikasi dan penyiaran",
-            "C. Sterilisasi alat medis dengan sinar gamma",
-            "D. Menghasilkan panas pada makanan menggunakan inframerah"
-        ],
-
-        "kunci": "B",
-
-        "alasan": [
-            "A. Karena gelombang radio dapat membawa informasi melalui gelombang elektromagnetik",
-            "B. Karena gelombang radio hanya dapat digunakan untuk menghasilkan panas",
-            "C. Karena gelombang radio memiliki energi paling besar",
-            "D. Karena gelombang radio tidak dapat merambat di udara"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Gelombang radio digunakan untuk komunikasi, seperti "
-            "siaran radio, televisi, dan sistem komunikasi nirkabel."
-        )
-    },
-
-    {
-        "id": 8,
-        "materi": "Sinar Ultraviolet",
-        "pertanyaan": "Paparan sinar ultraviolet Matahari secara berlebihan dapat menyebabkan ....",
-
-        "pilihan": [
-            "A. Kerusakan kulit",
-            "B. Bertambahnya massa tubuh secara langsung",
-            "C. Hilangnya gaya gravitasi",
-            "D. Bertambahnya kecepatan suara"
-        ],
-
-        "kunci": "A",
-
-        "alasan": [
-            "A. Karena sinar ultraviolet memiliki energi yang dapat merusak sel kulit",
-            "B. Karena sinar ultraviolet tidak memiliki energi",
-            "C. Karena sinar ultraviolet hanya dapat merambat dalam air",
-            "D. Karena sinar ultraviolet merupakan gelombang mekanik"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Paparan ultraviolet yang berlebihan dapat merusak "
-            "sel kulit dan meningkatkan risiko gangguan kulit. "
-            "Karena itu, perlindungan dari sinar Matahari diperlukan."
-        )
-    },
-
-    {
-        "id": 9,
-        "materi": "Sinar-X",
-        "pertanyaan": "Sinar-X dimanfaatkan dalam bidang kesehatan terutama untuk ....",
-
-        "pilihan": [
-            "A. Mengukur suhu tubuh",
-            "B. Melihat struktur bagian dalam tubuh",
-            "C. Mengukur tekanan darah",
-            "D. Mengukur denyut jantung secara langsung"
-        ],
-
-        "kunci": "B",
-
-        "alasan": [
-            "A. Karena sinar-X dapat menembus jaringan lunak dan diserap berbeda oleh tulang",
-            "B. Karena sinar-X tidak dapat menembus tubuh manusia",
-            "C. Karena sinar-X hanya digunakan untuk menghasilkan cahaya",
-            "D. Karena sinar-X merupakan gelombang suara"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Sinar-X dapat menembus jaringan tubuh dengan tingkat "
-            "penyerapan berbeda. Tulang menyerap lebih banyak "
-            "sinar-X daripada jaringan lunak sehingga dapat "
-            "digunakan untuk menghasilkan citra bagian dalam tubuh."
-        )
-    },
-
-    {
-        "id": 10,
-        "materi": "Sinar Gamma",
-        "pertanyaan": "Sinar gamma memiliki energi yang sangat tinggi dibandingkan gelombang elektromagnetik lainnya karena ....",
-
-        "pilihan": [
-            "A. Frekuensinya sangat rendah",
-            "B. Panjang gelombangnya sangat besar",
-            "C. Frekuensinya sangat tinggi",
-            "D. Tidak memiliki energi"
-        ],
-
-        "kunci": "C",
-
-        "alasan": [
-            "A. Karena energi foton sebanding dengan frekuensinya",
-            "B. Karena energi foton berbanding terbalik dengan frekuensi",
-            "C. Karena sinar gamma tidak membawa energi",
-            "D. Karena semua gelombang elektromagnetik memiliki energi yang sama"
-        ],
-
-        "kunci_alasan": "A",
-
-        "pembahasan": (
-            "Sinar gamma memiliki frekuensi sangat tinggi dan "
-            "panjang gelombang sangat pendek. Berdasarkan "
-            "persamaan E = hf, frekuensi yang tinggi menghasilkan "
-            "energi foton yang tinggi."
-        )
-    }
-
-]
+SOAL = [{'id': 1,
+  'materi': 'Pengertian Gelombang Elektromagnetik',
+  'pertanyaan': 'Gelombang elektromagnetik adalah gelombang yang ....',
+  'pilihan': ['A. Memerlukan medium untuk merambat',
+              'B. Tidak memerlukan medium untuk merambat',
+              'C. Hanya dapat merambat dalam zat cair',
+              'D. Hanya dapat merambat dalam zat padat',
+              'E. Hanya dapat merambat jika terdapat udara'],
+  'kunci': 'B',
+  'alasan': ['A. Karena gelombang elektromagnetik membutuhkan partikel medium',
+             'B. Karena gelombang elektromagnetik dapat merambat di ruang hampa',
+             'C. Karena gelombang elektromagnetik hanya merambat melalui udara',
+             'D. Karena gelombang elektromagnetik tidak membawa energi',
+             'E. Karena gelombang elektromagnetik merupakan gelombang bunyi'],
+  'kunci_alasan': 'B',
+  'pembahasan': 'Gelombang elektromagnetik tidak membutuhkan medium untuk merambat. '
+                'Gelombang ini dapat bergerak di ruang hampa, contohnya cahaya Matahari '
+                'yang sampai ke Bumi.\n'
+                '\n'
+                'Gelombang elektromagnetik tidak sama dengan gelombang bunyi. Bunyi '
+                'memerlukan medium seperti udara, air, atau benda padat, sedangkan '
+                'gelombang elektromagnetik dapat merambat di ruang hampa.'},
+ {'id': 2,
+  'materi': 'Sifat Gelombang Elektromagnetik',
+  'pertanyaan': 'Gelombang elektromagnetik memiliki medan listrik dan medan magnet yang '
+                '....',
+  'pilihan': ['A. Sejajar satu sama lain',
+              'B. Saling tegak lurus dan tegak lurus terhadap arah rambat',
+              'C. Berlawanan arah dan tidak berubah',
+              'D. Selalu berada pada satu garis lurus',
+              'E. Sejajar dengan arah rambat gelombang'],
+  'kunci': 'B',
+  'alasan': ['A. Karena medan listrik dan magnet merambat secara terpisah',
+             'B. Karena gelombang elektromagnetik merupakan gelombang transversal',
+             'C. Karena gelombang elektromagnetik merupakan gelombang longitudinal',
+             'D. Karena medan listrik tidak berhubungan dengan medan magnet',
+             'E. Karena arah medan listrik selalu sama dengan arah rambat'],
+  'kunci_alasan': 'B',
+  'pembahasan': 'Gelombang elektromagnetik merupakan gelombang transversal. Medan listrik '
+                'dan medan magnet saling tegak lurus serta keduanya tegak lurus terhadap '
+                'arah rambat gelombang.\n'
+                '\n'
+                'Arah medan listrik, medan magnet, dan arah rambat saling tegak lurus. '
+                'Hubungan ini merupakan ciri gelombang elektromagnetik sebagai gelombang '
+                'transversal.'},
+ {'id': 3,
+  'materi': 'Kecepatan Gelombang Elektromagnetik',
+  'pertanyaan': 'Kecepatan gelombang elektromagnetik di ruang hampa adalah ....',
+  'pilihan': ['A. 3 × 10⁶ m/s',
+              'B. 3 × 10⁷ m/s',
+              'C. 3 × 10⁸ m/s',
+              'D. 3 × 10⁹ m/s',
+              'E. 3 × 10¹⁰ m/s'],
+  'kunci': 'C',
+  'alasan': ['A. Karena kecepatan cahaya di ruang hampa sekitar 300.000 km/s',
+             'B. Karena semua gelombang bergerak dengan kecepatan yang sama di udara',
+             'C. Karena gelombang elektromagnetik tidak memiliki kecepatan tetap',
+             'D. Karena kecepatan gelombang elektromagnetik bergantung pada massanya',
+             'E. Karena nilai kecepatan cahaya di ruang hampa ditentukan oleh frekuensi sumber'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Kecepatan gelombang elektromagnetik di ruang hampa adalah sekitar 3 × 10⁸ '
+                'm/s. Nilai ini merupakan kecepatan cahaya di ruang hampa.\n'
+                '\n'
+                'Nilai kecepatan cahaya di ruang hampa mendekati 3 × 10⁸ m/s. Nilai ini '
+                'merupakan konstanta fisika dan bukan ditentukan oleh massa gelombang.'},
+ {'id': 4,
+  'materi': 'Hubungan Frekuensi dan Panjang Gelombang',
+  'pertanyaan': 'Jika frekuensi gelombang elektromagnetik semakin besar, maka panjang '
+                'gelombangnya akan ....',
+  'pilihan': ['A. Semakin besar',
+              'B. Semakin kecil',
+              'C. Tetap sama',
+              'D. Menjadi nol',
+              'E. Berubah secara tidak beraturan'],
+  'kunci': 'B',
+  'alasan': ['A. Karena frekuensi dan panjang gelombang berbanding lurus',
+             'B. Karena frekuensi dan panjang gelombang berbanding terbalik pada kecepatan '
+             'rambat tetap',
+             'C. Karena frekuensi tidak berhubungan dengan panjang gelombang',
+             'D. Karena panjang gelombang selalu bertambah ketika frekuensi bertambah',
+             'E. Karena cepat rambat selalu menjadi nol ketika frekuensi naik'],
+  'kunci_alasan': 'B',
+  'pembahasan': 'Hubungan frekuensi dan panjang gelombang dinyatakan dengan rumus c = λf. '
+                'Pada kecepatan rambat tetap, frekuensi yang semakin besar menyebabkan '
+                'panjang gelombang semakin kecil.\n'
+                '\n'
+                'Persamaan c = λf menunjukkan bahwa pada cepat rambat tetap, frekuensi dan '
+                'panjang gelombang berbanding terbalik. Keduanya bukan berubah secara '
+                'acak.'},
+ {'id': 5,
+  'materi': 'Spektrum Elektromagnetik',
+  'pertanyaan': 'Urutan gelombang elektromagnetik dari frekuensi paling rendah ke paling '
+                'tinggi adalah ....',
+  'pilihan': ['A. Radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, gamma',
+              'B. Gamma, sinar-X, ultraviolet, cahaya tampak, inframerah, mikro, radio',
+              'C. Radio, inframerah, mikro, ultraviolet, cahaya tampak, gamma, sinar-X',
+              'D. Cahaya tampak, radio, mikro, gamma, ultraviolet, inframerah, sinar-X',
+              'E. Mikro, radio, cahaya tampak, inframerah, sinar-X, ultraviolet, gamma'],
+  'kunci': 'A',
+  'alasan': ['A. Karena gelombang radio memiliki frekuensi paling rendah dan gamma paling '
+             'tinggi',
+             'B. Karena sinar gamma memiliki panjang gelombang paling besar',
+             'C. Karena semua jenis gelombang memiliki frekuensi yang sama',
+             'D. Karena gelombang radio memiliki energi paling tinggi',
+             'E. Karena urutan spektrum ditentukan berdasarkan warna saja'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Urutan spektrum elektromagnetik dari frekuensi terendah ke tertinggi '
+                'adalah radio, mikro, inframerah, cahaya tampak, ultraviolet, sinar-X, dan '
+                'sinar gamma.\n'
+                '\n'
+                'Urutan spektrum ditentukan oleh frekuensi atau panjang gelombang, bukan '
+                'berdasarkan warna saja. Cahaya tampak hanyalah bagian kecil dari seluruh '
+                'spektrum elektromagnetik.'},
+ {'id': 6,
+  'materi': 'Energi Gelombang Elektromagnetik',
+  'pertanyaan': 'Energi foton gelombang elektromagnetik akan semakin besar jika ....',
+  'pilihan': ['A. Frekuensinya semakin kecil',
+              'B. Panjang gelombangnya semakin besar',
+              'C. Frekuensinya semakin besar',
+              'D. Kecepatannya menjadi nol',
+              'E. Amplitudonya selalu menjadi nol'],
+  'kunci': 'C',
+  'alasan': ['A. Karena energi foton berbanding lurus dengan frekuensi',
+             'B. Karena energi foton tidak dipengaruhi frekuensi',
+             'C. Karena energi foton selalu tetap untuk semua gelombang',
+             'D. Karena energi foton berbanding lurus dengan panjang gelombang',
+             'E. Karena energi foton hanya ditentukan oleh medium'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Energi foton dirumuskan dengan E = hf. Artinya, semakin besar frekuensi '
+                'gelombang elektromagnetik, semakin besar pula energi fotonnya.\n'
+                '\n'
+                'Energi foton ditentukan oleh frekuensinya melalui E = hf. Amplitudo '
+                'gelombang bukan besaran yang digunakan dalam persamaan energi satu foton '
+                'tersebut.'},
+ {'id': 7,
+  'materi': 'Gelombang Radio',
+  'pertanyaan': 'Gelombang radio banyak dimanfaatkan dalam kehidupan sehari-hari untuk '
+                '....',
+  'pilihan': ['A. Pemeriksaan tulang menggunakan sinar-X',
+              'B. Komunikasi dan penyiaran',
+              'C. Sterilisasi alat medis dengan sinar gamma',
+              'D. Menghasilkan panas pada makanan menggunakan inframerah',
+              'E. Mengukur massa suatu benda secara langsung'],
+  'kunci': 'B',
+  'alasan': ['A. Karena gelombang radio dapat membawa informasi melalui gelombang '
+             'elektromagnetik',
+             'B. Karena gelombang radio hanya dapat digunakan untuk menghasilkan panas',
+             'C. Karena gelombang radio memiliki energi paling besar',
+             'D. Karena gelombang radio tidak dapat merambat di udara',
+             'E. Karena gelombang radio merupakan gelombang mekanik'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Gelombang radio digunakan untuk komunikasi, seperti siaran radio, '
+                'televisi, dan sistem komunikasi nirkabel.\n'
+                '\n'
+                'Gelombang radio merupakan gelombang elektromagnetik, bukan gelombang '
+                'mekanik. Gelombang radio dapat membawa informasi melalui proses modulasi '
+                'dan diterima oleh antena.'},
+ {'id': 8,
+  'materi': 'Sinar Ultraviolet',
+  'pertanyaan': 'Paparan sinar ultraviolet Matahari secara berlebihan dapat menyebabkan '
+                '....',
+  'pilihan': ['A. Kerusakan kulit',
+              'B. Bertambahnya massa tubuh secara langsung',
+              'C. Hilangnya gaya gravitasi',
+              'D. Bertambahnya kecepatan suara',
+              'E. Berubahnya arah medan magnet Bumi secara langsung'],
+  'kunci': 'A',
+  'alasan': ['A. Karena sinar ultraviolet memiliki energi yang dapat merusak sel kulit',
+             'B. Karena sinar ultraviolet tidak memiliki energi',
+             'C. Karena sinar ultraviolet hanya dapat merambat dalam air',
+             'D. Karena sinar ultraviolet merupakan gelombang mekanik',
+             'E. Karena sinar ultraviolet memiliki frekuensi lebih rendah daripada radio'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Paparan ultraviolet yang berlebihan dapat merusak sel kulit dan '
+                'meningkatkan risiko gangguan kulit. Karena itu, perlindungan dari sinar '
+                'Matahari diperlukan.\n'
+                '\n'
+                'Ultraviolet memiliki frekuensi lebih tinggi daripada cahaya tampak dan '
+                'radio. Paparan UV berlebihan dapat merusak jaringan kulit dan mata.'},
+ {'id': 9,
+  'materi': 'Sinar-X',
+  'pertanyaan': 'Sinar-X dimanfaatkan dalam bidang kesehatan terutama untuk ....',
+  'pilihan': ['A. Mengukur suhu tubuh',
+              'B. Melihat struktur bagian dalam tubuh',
+              'C. Mengukur tekanan darah',
+              'D. Mengukur denyut jantung secara langsung',
+              'E. Menentukan golongan darah tanpa pemeriksaan'],
+  'kunci': 'B',
+  'alasan': ['A. Karena sinar-X dapat menembus jaringan lunak dan diserap berbeda oleh '
+             'tulang',
+             'B. Karena sinar-X tidak dapat menembus tubuh manusia',
+             'C. Karena sinar-X hanya digunakan untuk menghasilkan cahaya',
+             'D. Karena sinar-X merupakan gelombang suara',
+             'E. Karena sinar-X dapat mengukur kerja jantung secara langsung'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Sinar-X dapat menembus jaringan tubuh dengan tingkat penyerapan berbeda. '
+                'Tulang menyerap lebih banyak sinar-X daripada jaringan lunak sehingga '
+                'dapat digunakan untuk menghasilkan citra bagian dalam tubuh.\n'
+                '\n'
+                'Sinar-X digunakan untuk membentuk citra bagian dalam tubuh karena '
+                'jaringan menyerap sinar-X secara berbeda. Pengukuran denyut jantung dan '
+                'golongan darah memerlukan metode pemeriksaan lain.'},
+ {'id': 10,
+  'materi': 'Sinar Gamma',
+  'pertanyaan': 'Sinar gamma memiliki energi yang sangat tinggi dibandingkan gelombang '
+                'elektromagnetik lainnya karena ....',
+  'pilihan': ['A. Frekuensinya sangat rendah',
+              'B. Panjang gelombangnya sangat besar',
+              'C. Frekuensinya sangat tinggi',
+              'D. Tidak memiliki energi',
+              'E. Merambat paling lambat di ruang hampa'],
+  'kunci': 'C',
+  'alasan': ['A. Karena energi foton sebanding dengan frekuensinya',
+             'B. Karena energi foton berbanding terbalik dengan frekuensi',
+             'C. Karena sinar gamma tidak membawa energi',
+             'D. Karena semua gelombang elektromagnetik memiliki energi yang sama',
+             'E. Karena energi foton hanya dipengaruhi oleh panjang medium'],
+  'kunci_alasan': 'A',
+  'pembahasan': 'Sinar gamma memiliki frekuensi sangat tinggi dan panjang gelombang sangat '
+                'pendek. Berdasarkan persamaan E = hf, frekuensi yang tinggi menghasilkan '
+                'energi foton yang tinggi.\n'
+                '\n'
+                'Sinar gamma memiliki frekuensi sangat tinggi. Karena E = hf, energi '
+                'fotonnya juga sangat tinggi; bukan karena gelombang ini merambat paling '
+                'lambat.'}]
 
 
 # =========================================================
@@ -896,163 +817,224 @@ SOAL = SOAL[:JUMLAH_SOAL]
 # 21. MATERI REMEDIAL
 # =========================================================
 
-MATERI = {
-
-    "Pengertian Gelombang Elektromagnetik": {
-        "judul": "Pengertian Gelombang Elektromagnetik",
-
-        "isi": """
-Gelombang elektromagnetik merupakan gelombang yang terbentuk
-dari perubahan medan listrik dan medan magnet.
-
-Gelombang ini dapat merambat tanpa memerlukan medium sehingga
-bisa bergerak melalui ruang hampa.
-
-Contohnya adalah cahaya Matahari yang dapat sampai ke Bumi
-meskipun melewati ruang angkasa.
-""",
-
-        "rumus": "c = λf"
-    },
-
-    "Sifat Gelombang Elektromagnetik": {
-        "judul": "Sifat Gelombang Elektromagnetik",
-
-        "isi": """
-Gelombang elektromagnetik termasuk gelombang transversal.
-
-Medan listrik dan medan magnet saling tegak lurus.
-Keduanya juga tegak lurus terhadap arah rambat gelombang.
-
-Gelombang elektromagnetik dapat mengalami pemantulan,
-pembiasan, interferensi, difraksi, dan polarisasi.
-""",
-
-        "rumus": "E ⟂ B ⟂ arah rambat"
-    },
-
-    "Kecepatan Gelombang Elektromagnetik": {
-        "judul": "Kecepatan Gelombang Elektromagnetik",
-
-        "isi": """
-Di ruang hampa, gelombang elektromagnetik merambat dengan
-kecepatan sekitar 3 × 10⁸ m/s.
-
-Kecepatan tersebut merupakan kecepatan cahaya di ruang hampa.
-Ketika merambat melalui medium, kecepatannya dapat berubah.
-""",
-
-        "rumus": "c = 3 × 10⁸ m/s"
-    },
-
-    "Hubungan Frekuensi dan Panjang Gelombang": {
-        "judul": "Hubungan Frekuensi dan Panjang Gelombang",
-
-        "isi": """
-Frekuensi menunjukkan banyaknya gelombang yang melewati
-suatu titik setiap detik.
-
-Panjang gelombang adalah jarak antara dua titik yang
-memiliki fase sama dan berurutan.
-
-Pada kecepatan rambat tetap, frekuensi dan panjang
-gelombang berbanding terbalik.
-""",
-
-        "rumus": "c = λf"
-    },
-
-    "Spektrum Elektromagnetik": {
-        "judul": "Spektrum Elektromagnetik",
-
-        "isi": """
-Spektrum elektromagnetik merupakan susunan berbagai
-jenis gelombang elektromagnetik berdasarkan frekuensi
-atau panjang gelombangnya.
-
-Urutan dari frekuensi rendah ke tinggi:
-
-1. Gelombang radio
-2. Gelombang mikro
-3. Inframerah
-4. Cahaya tampak
-5. Ultraviolet
-6. Sinar-X
-7. Sinar gamma
-""",
-
-        "rumus": "c = λf"
-    },
-
-    "Energi Gelombang Elektromagnetik": {
-        "judul": "Energi Gelombang Elektromagnetik",
-
-        "isi": """
-Energi gelombang elektromagnetik dibawa dalam bentuk
-paket energi yang disebut foton.
-
-Besarnya energi foton dipengaruhi oleh frekuensi.
-Semakin besar frekuensi, semakin besar energi foton.
-""",
-
-        "rumus": "E = hf"
-    },
-
-    "Gelombang Radio": {
-        "judul": "Gelombang Radio",
-
-        "isi": """
-Gelombang radio memiliki frekuensi relatif rendah
-dan panjang gelombang relatif besar.
-
-Gelombang ini digunakan dalam komunikasi,
-penyiaran radio, televisi, dan berbagai sistem komunikasi.
-"""
-    },
-
-    "Sinar Ultraviolet": {
-        "judul": "Sinar Ultraviolet",
-
-        "isi": """
-Sinar ultraviolet memiliki frekuensi lebih tinggi
-daripada cahaya tampak.
-
-Sinar ultraviolet berasal dari Matahari dan beberapa
-sumber buatan.
-
-Paparan berlebihan dapat menyebabkan kerusakan kulit
-dan mata sehingga perlu perlindungan.
-"""
-    },
-
-    "Sinar-X": {
-        "judul": "Sinar-X",
-
-        "isi": """
-Sinar-X merupakan gelombang elektromagnetik dengan
-frekuensi tinggi dan panjang gelombang pendek.
-
-Dalam bidang kesehatan, sinar-X digunakan untuk
-membantu melihat struktur bagian dalam tubuh,
-terutama tulang.
-"""
-    },
-
-    "Sinar Gamma": {
-        "judul": "Sinar Gamma",
-
-        "isi": """
-Sinar gamma memiliki frekuensi sangat tinggi
-dan panjang gelombang sangat pendek.
-
-Sinar gamma memiliki energi foton yang tinggi.
-Pemanfaatannya antara lain dalam radioterapi
-dan sterilisasi alat medis dengan pengendalian khusus.
-"""
-    }
-
+MATERI = {'Pengertian Gelombang Elektromagnetik': {'judul': 'Pengertian Gelombang Elektromagnetik',
+                                          'isi': '\n'
+                                                 'Gelombang elektromagnetik merupakan '
+                                                 'gelombang yang terbentuk\n'
+                                                 'dari perubahan medan listrik dan medan '
+                                                 'magnet.\n'
+                                                 '\n'
+                                                 'Gelombang ini dapat merambat tanpa '
+                                                 'memerlukan medium sehingga\n'
+                                                 'bisa bergerak melalui ruang hampa.\n'
+                                                 '\n'
+                                                 'Contohnya adalah cahaya Matahari yang '
+                                                 'dapat sampai ke Bumi\n'
+                                                 'meskipun melewati ruang angkasa.\n'
+                                                 '\n'
+                                                 '**Penjelasan lebih lanjut:** Gelombang '
+                                                 'elektromagnetik terbentuk ketika medan '
+                                                 'listrik dan medan magnet berubah '
+                                                 'terhadap waktu. Perubahan kedua medan '
+                                                 'saling berkaitan sehingga gelombang '
+                                                 'dapat merambat membawa energi. Contoh '
+                                                 'yang mudah diamati adalah cahaya '
+                                                 'Matahari, sinyal radio, dan cahaya dari '
+                                                 'lampu. Karena tidak membutuhkan medium, '
+                                                 'gelombang elektromagnetik tetap dapat '
+                                                 'merambat meskipun tidak ada udara.',
+                                          'rumus': 'c = λf'},
+ 'Sifat Gelombang Elektromagnetik': {'judul': 'Sifat Gelombang Elektromagnetik',
+                                     'isi': '\n'
+                                            'Gelombang elektromagnetik termasuk gelombang '
+                                            'transversal.\n'
+                                            '\n'
+                                            'Medan listrik dan medan magnet saling tegak '
+                                            'lurus.\n'
+                                            'Keduanya juga tegak lurus terhadap arah '
+                                            'rambat gelombang.\n'
+                                            '\n'
+                                            'Gelombang elektromagnetik dapat mengalami '
+                                            'pemantulan,\n'
+                                            'pembiasan, interferensi, difraksi, dan '
+                                            'polarisasi.\n'
+                                            '\n'
+                                            '**Penjelasan lebih lanjut:** Sebagai '
+                                            'gelombang transversal, arah medan listrik dan '
+                                            'medan magnet tidak searah dengan arah rambat. '
+                                            'Keduanya saling tegak lurus. Gelombang '
+                                            'elektromagnetik juga dapat mengalami '
+                                            'pemantulan ketika mengenai permukaan, '
+                                            'pembiasan ketika memasuki medium berbeda, '
+                                            'interferensi ketika bertemu gelombang lain, '
+                                            'difraksi ketika melewati celah, dan '
+                                            'polarisasi karena arah getarnya dapat '
+                                            'diseleksi.',
+                                     'rumus': 'E ⟂ B ⟂ arah rambat'},
+ 'Kecepatan Gelombang Elektromagnetik': {'judul': 'Kecepatan Gelombang Elektromagnetik',
+                                         'isi': '\n'
+                                                'Di ruang hampa, gelombang elektromagnetik '
+                                                'merambat dengan\n'
+                                                'kecepatan sekitar 3 × 10⁸ m/s.\n'
+                                                '\n'
+                                                'Kecepatan tersebut merupakan kecepatan '
+                                                'cahaya di ruang hampa.\n'
+                                                'Ketika merambat melalui medium, '
+                                                'kecepatannya dapat berubah.\n'
+                                                '\n'
+                                                '**Penjelasan lebih lanjut:** Simbol c '
+                                                'digunakan untuk menyatakan kecepatan '
+                                                'cahaya di ruang hampa, yaitu sekitar '
+                                                '299.792.458 m/s atau dibulatkan menjadi 3 '
+                                                '× 10⁸ m/s. Di dalam medium, kecepatan '
+                                                'cahaya dipengaruhi sifat optik medium. '
+                                                'Hubungan kecepatan, frekuensi, dan '
+                                                'panjang gelombang perlu dipahami bersama '
+                                                'agar tidak menganggap kecepatan di semua '
+                                                'bahan selalu sama.',
+                                         'rumus': 'c = 3 × 10⁸ m/s'},
+ 'Hubungan Frekuensi dan Panjang Gelombang': {'judul': 'Hubungan Frekuensi dan Panjang '
+                                                       'Gelombang',
+                                              'isi': '\n'
+                                                     'Frekuensi menunjukkan banyaknya '
+                                                     'gelombang yang melewati\n'
+                                                     'suatu titik setiap detik.\n'
+                                                     '\n'
+                                                     'Panjang gelombang adalah jarak '
+                                                     'antara dua titik yang\n'
+                                                     'memiliki fase sama dan berurutan.\n'
+                                                     '\n'
+                                                     'Pada kecepatan rambat tetap, '
+                                                     'frekuensi dan panjang\n'
+                                                     'gelombang berbanding terbalik.\n'
+                                                     '\n'
+                                                     '**Penjelasan lebih lanjut:** '
+                                                     'Frekuensi dilambangkan f dan '
+                                                     'memiliki satuan hertz (Hz), '
+                                                     'sedangkan panjang gelombang '
+                                                     'dilambangkan λ dan memiliki satuan '
+                                                     'meter (m). Satu hertz berarti satu '
+                                                     'siklus setiap sekon. Pada ruang '
+                                                     'hampa berlaku c = λf. Contohnya, '
+                                                     'jika f = 6 × 10⁶ Hz, maka λ = (3 × '
+                                                     '10⁸)/(6 × 10⁶) = 50 m. Periksa '
+                                                     'satuan dan pangkat sepuluh saat '
+                                                     'melakukan perhitungan.',
+                                              'rumus': 'c = λf'},
+ 'Spektrum Elektromagnetik': {'judul': 'Spektrum Elektromagnetik',
+                              'isi': '\n'
+                                     'Spektrum elektromagnetik merupakan susunan berbagai\n'
+                                     'jenis gelombang elektromagnetik berdasarkan '
+                                     'frekuensi\n'
+                                     'atau panjang gelombangnya.\n'
+                                     '\n'
+                                     'Urutan dari frekuensi rendah ke tinggi:\n'
+                                     '\n'
+                                     '1. Gelombang radio\n'
+                                     '2. Gelombang mikro\n'
+                                     '3. Inframerah\n'
+                                     '4. Cahaya tampak\n'
+                                     '5. Ultraviolet\n'
+                                     '6. Sinar-X\n'
+                                     '7. Sinar gamma\n'
+                                     '\n'
+                                     '**Penjelasan lebih lanjut:** Urutan dari frekuensi '
+                                     'rendah menuju tinggi adalah radio, mikro, '
+                                     'inframerah, cahaya tampak, ultraviolet, sinar-X, dan '
+                                     'gamma. Ketika bergerak dari radio menuju gamma, '
+                                     'frekuensi meningkat, panjang gelombang mengecil, dan '
+                                     'energi foton meningkat. Batas antara setiap bagian '
+                                     'spektrum tidak selalu berupa batas tajam karena '
+                                     'rentang frekuensi dapat saling berdekatan.',
+                              'rumus': 'c = λf'},
+ 'Energi Gelombang Elektromagnetik': {'judul': 'Energi Gelombang Elektromagnetik',
+                                      'isi': '\n'
+                                             'Energi gelombang elektromagnetik dibawa '
+                                             'dalam bentuk\n'
+                                             'paket energi yang disebut foton.\n'
+                                             '\n'
+                                             'Besarnya energi foton dipengaruhi oleh '
+                                             'frekuensi.\n'
+                                             'Semakin besar frekuensi, semakin besar '
+                                             'energi foton.\n'
+                                             '\n'
+                                             '**Penjelasan lebih lanjut:** Energi satu '
+                                             'foton dihitung menggunakan E = hf. Konstanta '
+                                             'Planck h bernilai 6,626 × 10⁻³⁴ J s. Jika '
+                                             'frekuensi naik dua kali, energi satu foton '
+                                             'juga naik dua kali. Persamaan E = hf '
+                                             'menjelaskan energi tiap foton, bukan secara '
+                                             'langsung jumlah total energi dalam berkas '
+                                             'cahaya yang juga dipengaruhi banyaknya '
+                                             'foton.',
+                                      'rumus': 'E = hf'},
+ 'Gelombang Radio': {'judul': 'Gelombang Radio',
+                     'isi': '\n'
+                            'Gelombang radio memiliki frekuensi relatif rendah\n'
+                            'dan panjang gelombang relatif besar.\n'
+                            '\n'
+                            'Gelombang ini digunakan dalam komunikasi,\n'
+                            'penyiaran radio, televisi, dan berbagai sistem komunikasi.\n'
+                            '\n'
+                            '**Penjelasan lebih lanjut:** Informasi suara atau gambar '
+                            'terlebih dahulu diubah menjadi sinyal, kemudian digunakan '
+                            'untuk memodulasi gelombang pembawa. Antena pemancar '
+                            'mengirimkan gelombang radio dan antena penerima menangkapnya. '
+                            'Perangkat penerima mengolah sinyal tersebut kembali menjadi '
+                            'informasi. Gelombang radio adalah gelombang elektromagnetik, '
+                            'sedangkan suara yang didengar manusia adalah gelombang '
+                            'mekanik.'},
+ 'Sinar Ultraviolet': {'judul': 'Sinar Ultraviolet',
+                       'isi': '\n'
+                              'Sinar ultraviolet memiliki frekuensi lebih tinggi\n'
+                              'daripada cahaya tampak.\n'
+                              '\n'
+                              'Sinar ultraviolet berasal dari Matahari dan beberapa\n'
+                              'sumber buatan.\n'
+                              '\n'
+                              'Paparan berlebihan dapat menyebabkan kerusakan kulit\n'
+                              'dan mata sehingga perlu perlindungan.\n'
+                              '\n'
+                              '**Penjelasan lebih lanjut:** Ultraviolet dibagi menjadi '
+                              'beberapa rentang, yaitu UVA, UVB, dan UVC. Sinar UV dari '
+                              'Matahari dapat memberi manfaat dalam pembentukan vitamin D, '
+                              'tetapi paparan berlebihan dapat menyebabkan kulit terbakar '
+                              'dan meningkatkan risiko kerusakan kulit serta mata. Dampak '
+                              'paparan dipengaruhi intensitas, lama paparan, dan jenis UV. '
+                              'Perlindungan dapat dilakukan dengan pakaian, kacamata '
+                              'pelindung, berteduh, dan tabir surya.'},
+ 'Sinar-X': {'judul': 'Sinar-X',
+             'isi': '\n'
+                    'Sinar-X merupakan gelombang elektromagnetik dengan\n'
+                    'frekuensi tinggi dan panjang gelombang pendek.\n'
+                    '\n'
+                    'Dalam bidang kesehatan, sinar-X digunakan untuk\n'
+                    'membantu melihat struktur bagian dalam tubuh,\n'
+                    'terutama tulang.\n'
+                    '\n'
+                    '**Penjelasan lebih lanjut:** Pada pemeriksaan radiografi, sinar-X '
+                    'melewati tubuh dan diserap dengan tingkat berbeda oleh tulang serta '
+                    'jaringan lunak. Perbedaan intensitas yang mencapai detektor membentuk '
+                    'citra. Sinar-X termasuk radiasi pengion sehingga penggunaannya harus '
+                    'berdasarkan kebutuhan medis dan mengikuti prinsip keselamatan '
+                    'radiasi.'},
+ 'Sinar Gamma': {'judul': 'Sinar Gamma',
+                 'isi': '\n'
+                        'Sinar gamma memiliki frekuensi sangat tinggi\n'
+                        'dan panjang gelombang sangat pendek.\n'
+                        '\n'
+                        'Sinar gamma memiliki energi foton yang tinggi.\n'
+                        'Pemanfaatannya antara lain dalam radioterapi\n'
+                        'dan sterilisasi alat medis dengan pengendalian khusus.\n'
+                        '\n'
+                        '**Penjelasan lebih lanjut:** Sinar gamma dapat berasal dari '
+                        'proses nuklir atau peluruhan radioaktif tertentu. Energinya '
+                        'tinggi sehingga mampu mengionisasi materi dan dapat merusak sel '
+                        'hidup. Dalam pengawasan ketat, sinar gamma dimanfaatkan pada '
+                        'radioterapi dan sterilisasi peralatan. Perlindungan radiasi, '
+                        'pembatasan waktu paparan, jarak, dan pelindung yang sesuai sangat '
+                        'penting.'}
 }
-
 
 # =========================================================
 # 22. KONSTANTA FISIKA
@@ -1298,6 +1280,7 @@ def ambil_semua_hasil():
     conn.close()
 
     return data
+
 
 # =========================================================
 # 27. CSS DAN TAMPILAN APLIKASI
@@ -1585,7 +1568,6 @@ def halaman_sidebar():
 
                 st.session_state.halaman = "Registrasi"
                 st.rerun()
-
 
 # =========================================================
 # 31. DASHBOARD SISWA
@@ -1973,10 +1955,10 @@ def halaman_tes():
 
         st.write("""
         1. Ujian terdiri dari 10 soal.
-        2. Setiap soal memiliki empat tingkat pertanyaan.
-        3. Jawablah sesuai pemahaman sendiri.
-        4. Pilih tingkat keyakinan secara jujur.
-        5. Jangan meninggalkan halaman ujian.
+        2. Setiap soal memiliki empat tingkat pertanyaan, dengan lima pilihan jawaban (A–E) dan lima pilihan alasan (A–E).
+        4. Jawablah sesuai pemahaman sendiri.
+        5. Pilih tingkat keyakinan secara jujur.
+        6. Jangan meninggalkan halaman ujian.
         """)
 
         persetujuan = st.checkbox(
@@ -2052,17 +2034,17 @@ def halaman_tes():
 
         jawaban = st.radio(
             "Pilih jawaban yang paling tepat:",
-            options=["A", "B", "C", "D"],
+            options=["A", "B", "C", "D", "E"],
             format_func=lambda x: next(
                 item for item in soal["pilihan"]
                 if item.startswith(x + ".")
             ),
             index=(
-                ["A", "B", "C", "D"].index(
+                ["A", "B", "C", "D", "E"].index(
                     data_lama["jawaban"]
                 )
                 if data_lama.get("jawaban") in
-                ["A", "B", "C", "D"]
+                ["A", "B", "C", "D", "E"]
                 else None
             ),
             key=f"jawaban_{nomor}"
@@ -2088,17 +2070,17 @@ def halaman_tes():
 
         alasan = st.radio(
             "Pilih alasan yang paling tepat:",
-            options=["A", "B", "C", "D"],
+            options=["A", "B", "C", "D", "E"],
             format_func=lambda x: next(
                 item for item in soal["alasan"]
                 if item.startswith(x + ".")
             ),
             index=(
-                ["A", "B", "C", "D"].index(
+                ["A", "B", "C", "D", "E"].index(
                     data_lama["alasan"]
                 )
                 if data_lama.get("alasan") in
-                ["A", "B", "C", "D"]
+                ["A", "B", "C", "D", "E"]
                 else None
             ),
             key=f"alasan_{nomor}"
@@ -3283,3 +3265,363 @@ def main():
 if __name__ == "__main__":
 
     main()
+
+
+# =========================================================
+# 46. RESPONSIVE DESIGN UNTUK HP, TABLET, DAN LAPTOP
+# =========================================================
+
+st.markdown("""
+<style>
+
+/* =========================================
+   1. WARNA DASAR DAN TAMPILAN UTAMA
+========================================= */
+
+:root {
+    --warna-utama: #2457A7;
+    --warna-gelap: #17345F;
+    --warna-latar: #F4F7FC;
+    --warna-kartu: #FFFFFF;
+    --warna-teks: #1B2638;
+    --warna-teks-kedua: #536176;
+    --warna-garis: #DCE4F0;
+}
+
+.stApp {
+    background-color: var(--warna-latar);
+    color: var(--warna-teks);
+}
+
+/* Area konten */
+.main .block-container {
+    max-width: 1200px;
+    padding-top: 1.5rem;
+    padding-bottom: 3rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+
+/* =========================================
+   2. TULISAN AGAR LEBIH JELAS
+========================================= */
+
+.stApp p,
+.stApp li,
+.stApp label,
+.stApp .stMarkdown,
+.stApp .stText,
+.stApp [data-testid="stCaptionContainer"] {
+    color: var(--warna-teks);
+    line-height: 1.65;
+}
+
+.stApp h1 {
+    color: var(--warna-gelap);
+    font-size: 2rem;
+    font-weight: 800;
+}
+
+.stApp h2 {
+    color: var(--warna-gelap);
+    font-size: 1.65rem;
+    font-weight: 750;
+}
+
+.stApp h3 {
+    color: var(--warna-utama);
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+/* Teks kecil tetap terbaca */
+[data-testid="stCaptionContainer"] p {
+    font-size: 0.9rem;
+    color: var(--warna-teks-kedua);
+}
+
+/* =========================================
+   3. KARTU DAN KOTAK INFORMASI
+========================================= */
+
+[data-testid="stMetric"],
+[data-testid="stExpander"],
+div[data-testid="stForm"],
+div[data-testid="stAlert"] {
+    border-radius: 14px;
+}
+
+[data-testid="stMetric"] {
+    background: var(--warna-kartu);
+    border: 1px solid var(--warna-garis);
+    padding: 15px;
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--warna-teks-kedua);
+    font-weight: 600;
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--warna-gelap);
+    font-weight: 800;
+}
+
+/* =========================================
+   4. TOMBOL
+========================================= */
+
+.stButton > button,
+.stDownloadButton > button,
+.stFormSubmitButton > button {
+    background-color: var(--warna-utama);
+    color: #FFFFFF !important;
+    border: 1px solid var(--warna-utama);
+    border-radius: 10px;
+    min-height: 44px;
+    font-weight: 700;
+    padding: 0.55rem 1rem;
+    transition: 0.2s ease;
+}
+
+.stButton > button p,
+.stDownloadButton > button p,
+.stFormSubmitButton > button p {
+    color: #FFFFFF !important;
+    font-weight: 700;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+.stFormSubmitButton > button:hover {
+    background-color: var(--warna-gelap);
+    border-color: var(--warna-gelap);
+    color: #FFFFFF !important;
+}
+
+/* =========================================
+   5. INPUT DAN PILIHAN JAWABAN
+========================================= */
+
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea {
+    background-color: #FFFFFF !important;
+    color: var(--warna-teks) !important;
+    border: 1px solid #B8C7DA !important;
+    border-radius: 9px;
+    font-size: 16px !important;
+    min-height: 44px;
+}
+
+[data-baseweb="select"] > div {
+    background-color: #FFFFFF !important;
+    color: var(--warna-teks) !important;
+    border-color: #B8C7DA !important;
+    min-height: 44px;
+}
+
+.stRadio label,
+.stCheckbox label {
+    color: var(--warna-teks) !important;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+/* =========================================
+   6. TABEL DAN TAB
+========================================= */
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--warna-garis);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.stTabs [data-baseweb="tab"] {
+    color: var(--warna-teks);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.stTabs [aria-selected="true"] {
+    color: var(--warna-utama) !important;
+}
+
+/* =========================================
+   7. SIDEBAR
+========================================= */
+
+[data-testid="stSidebar"] {
+    background-color: #EAF0FA;
+}
+
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span {
+    color: var(--warna-teks);
+}
+
+/* =========================================
+   8. TAMPILAN TABLET
+========================================= */
+
+@media (max-width: 900px) {
+
+    .main .block-container {
+        padding-left: 1.2rem;
+        padding-right: 1.2rem;
+    }
+
+    .stApp h1 {
+        font-size: 1.8rem;
+    }
+
+    .stApp h2 {
+        font-size: 1.45rem;
+    }
+
+    .stApp h3 {
+        font-size: 1.2rem;
+    }
+}
+
+/* =========================================
+   9. TAMPILAN HP
+========================================= */
+
+@media (max-width: 600px) {
+
+    /* Ruang konten HP */
+    .main .block-container {
+        padding-top: 1rem;
+        padding-left: 0.85rem;
+        padding-right: 0.85rem;
+        padding-bottom: 2rem;
+    }
+
+    /* Ukuran tulisan */
+    .stApp {
+        font-size: 16px;
+    }
+
+    .stApp p,
+    .stApp li,
+    .stApp label,
+    .stApp .stMarkdown {
+        font-size: 15px;
+        line-height: 1.65;
+    }
+
+    .stApp h1 {
+        font-size: 1.55rem;
+        line-height: 1.3;
+    }
+
+    .stApp h2 {
+        font-size: 1.3rem;
+        line-height: 1.35;
+    }
+
+    .stApp h3 {
+        font-size: 1.12rem;
+        line-height: 1.4;
+    }
+
+    /* Tombol lebih mudah disentuh */
+    .stButton > button,
+    .stDownloadButton > button,
+    .stFormSubmitButton > button {
+        width: 100%;
+        min-height: 48px;
+        font-size: 15px;
+        white-space: normal;
+    }
+
+    /* Input tidak terlalu kecil */
+    .stTextInput input,
+    .stNumberInput input,
+    .stTextArea textarea {
+        font-size: 16px !important;
+        min-height: 46px;
+    }
+
+    /* Pilihan jawaban */
+    .stRadio label,
+    .stCheckbox label {
+        font-size: 15px !important;
+        line-height: 1.55;
+        padding-top: 4px;
+        padding-bottom: 4px;
+    }
+
+    /* Kartu metrik */
+    [data-testid="stMetric"] {
+        padding: 11px;
+        margin-bottom: 8px;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 12px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.35rem;
+    }
+
+    /* Tab bisa digeser */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 5px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        font-size: 13px;
+        padding: 8px 10px;
+        white-space: nowrap;
+    }
+
+    /* Tabel tetap bisa digeser */
+    [data-testid="stDataFrame"] {
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    /* Gambar menyesuaikan layar */
+    [data-testid="stImage"] img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /* Jarak antarbagian */
+    [data-testid="stVerticalBlock"] {
+        gap: 0.75rem;
+    }
+
+    /* Tulisan sidebar */
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label {
+        font-size: 15px;
+    }
+}
+
+/* =========================================
+   10. MENCEGAH KONTEN MELEBAR KELUAR LAYAR
+========================================= */
+
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+    max-width: 100%;
+    overflow-wrap: break-word;
+}
+
+pre,
+code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+</style>
+""", unsafe_allow_html=True)
